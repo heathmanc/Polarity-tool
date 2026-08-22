@@ -12,6 +12,9 @@ config.json
 build/
 dist/
 *.egg-info/
+# Locally generated manuals/exports. A handoff package must carry a
+# deliberately produced, revision-matched document, never a stray local build.
+output/
 # Generated ML assets are site-controlled. Add with -f only after qualification.
 models/*.onnx
 models/*.pt

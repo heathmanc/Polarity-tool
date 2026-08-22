@@ -790,13 +790,13 @@ class AppController(QObject):
         try:
             if previous_bypass and previous.connected:
                 previous.set_bypass(False)
-        except Exception:
+        except Exception:  # noqa: S110 - a vanished PLC cannot accept the clear; the watchdog covers it
             # A failed/vanished PLC may not accept the clear. PLC-side effective
             # bypass must therefore also be conditioned on the heartbeat watchdog.
             pass
         try:
             previous.disconnect()
-        except Exception:
+        except Exception:  # noqa: S110 - best-effort teardown of a service already being replaced
             pass
 
     @property
@@ -954,7 +954,7 @@ class AppController(QObject):
             plc_error = str(exc)
             try:
                 self.plc.disconnect()
-            except Exception:
+            except Exception:  # noqa: S110 - best-effort teardown after a failed connect; plc_error is reported
                 pass
         else:
             self.plc_backend_active = self.config.plc_backend
@@ -1060,7 +1060,7 @@ class AppController(QObject):
             else:
                 try:
                     self.camera.disconnect()
-                except Exception:
+                except Exception:  # noqa: S110 - best-effort teardown of the camera being replaced
                     pass
                 self.camera = replacement
                 self.camera_backend_active = "basler_defaults"
@@ -1082,7 +1082,7 @@ class AppController(QObject):
             self.camera_fallback_reason = f"{exc}; camera-default retry: {safe_error}"
             try:
                 self.camera.disconnect()
-            except Exception:
+            except Exception:  # noqa: S110 - best-effort teardown before falling back to simulation
                 pass
             self.camera = MockCameraService(
                 self.assets_directory / "demo_battery.jpg",
@@ -1547,7 +1547,7 @@ class AppController(QObject):
         self.camera_backend_active = active_backend
         try:
             previous.disconnect()
-        except Exception:
+        except Exception:  # noqa: S110 - best-effort teardown of the service just replaced
             pass
 
     def _camera_settings_complete(self, payload: object) -> None:
@@ -1703,7 +1703,7 @@ class AppController(QObject):
         except Exception as exc:
             try:
                 replacement.disconnect()
-            except Exception:
+            except Exception:  # noqa: S110 - best-effort teardown; the original failure is re-raised below
                 pass
             raise exc
 
@@ -2427,7 +2427,7 @@ class AppController(QObject):
             if self.plc.connected and self._bypass_active:
                 try:
                     self.plc.set_bypass(False)
-                except Exception:
+                except Exception:  # noqa: S110 - shutdown clear is best-effort; the watchdog revokes bypass
                     # PLC watchdog logic must revoke effective bypass when the
                     # HMI heartbeat stops even if a normal shutdown clear fails.
                     pass

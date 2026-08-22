@@ -1,0 +1,30 @@
+Copyright (c) 2026 EnerSys. All rights reserved.
+
+Pole Position is proprietary software. It is made available only under a
+separate written agreement with EnerSys.
+
+No license or right is granted, expressly or by implication, to any person or
+organization to use, copy, modify, merge, publish, distribute, sublicense, sell,
+reverse engineer, or create derivative works from this software or its
+documentation, except as expressly permitted by that written agreement or as
+required by applicable law.
+
+Receiving a copy of this software — including through a station handoff package,
+an installer, or access to this repository — does not by itself grant any of the
+rights above.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Pole Position carries no safety rating. Bypass, heartbeat, and inspection
+results are operational quality signals only, and the application is not a
+safety device. See README.md for the purpose and safety boundary.
+
+Third-party components distributed with or required by this software — among
+them PySide6/Qt, OpenCV, NumPy, ONNX Runtime, pypylon and the Basler pylon
+Runtime, pycomm3, PyTorch, and Ultralytics — remain subject to their own
+licenses, which govern those components.

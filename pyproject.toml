@@ -8,6 +8,15 @@ version = "0.23.4"
 description = "Pole Position — ISA-101-aligned configurable battery inspection HMI"
 readme = "README.md"
 requires-python = ">=3.11"
+# Proprietary. The table form is used rather than a PEP 639 SPDX string so the
+# metadata stays valid for the whole declared setuptools>=69 range.
+license = { file = "LICENSE" }
+classifiers = [
+  "License :: Other/Proprietary License",
+  "Private :: Do Not Upload",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
 dependencies = [
   "PySide6>=6.7,<7",
   "numpy>=1.26,<3",
@@ -53,4 +62,16 @@ target-version = "py311"
 # widened its implicit defaults across releases; without this block a routine
 # toolchain refresh turns CI red on rules the project never opted into.
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+# S110/S112 are enforced so a new silent `except: pass` cannot enter a
+# fail-closed inspection application unexamined. All 20 existing sites were
+# audited and carry a noqa naming why swallowing is correct there -- almost
+# all are best-effort teardown of a resource already being abandoned, or
+# probing alternative GenICam names where absence is the expected result.
+# S608 is free: both dynamic-SQL sites are already annotated.
+#
+# BLE001 (blind except) is deliberately not enabled yet. The code already
+# annotates its intentional blind excepts, but 40 further sites would need
+# review first, which is its own change rather than part of this audit.
+# RUF100 waits on that, since it would demand deleting those annotations
+# while the rule that justifies them is still off.
+select = ["E4", "E7", "E9", "F", "S110", "S112", "S608"]

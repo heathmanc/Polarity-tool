@@ -501,12 +501,12 @@ class BaslerCameraService(CameraService):
             try:
                 if self._camera.IsGrabbing():
                     self._camera.StopGrabbing()
-            except Exception:
+            except Exception:  # noqa: S110 - closing an already-faulted grab must not mask the real error
                 pass
             try:
                 if self._camera.IsOpen():
                     self._camera.Close()
-            except Exception:
+            except Exception:  # noqa: S110 - closing an already-faulted camera must not mask the real error
                 pass
         self._camera = None
         self._converter = None
@@ -608,7 +608,7 @@ class BaslerCameraService(CameraService):
             finally:
                 try:
                     result.Release()
-                except Exception:
+                except Exception:  # noqa: S110 - releasing a discarded grab result is best-effort
                     pass
         return discarded
 
@@ -703,7 +703,7 @@ class BaslerCameraService(CameraService):
                     self._apply_settings_locked(previous_settings)
                     self._capabilities = self._read_capabilities_locked()
                     self.settings = previous_settings
-                except Exception:
+                except Exception:  # noqa: S110 - rollback attempt; the original failure is raised immediately below
                     pass
                 if isinstance(exc, CameraError):
                     raise
@@ -887,7 +887,7 @@ def _grab_result_identifier(result: Any) -> str:
             value = value() if callable(value) else value
             if value is not None:
                 return str(value)
-        except Exception:
+        except Exception:  # noqa: S112 - probing alternative GenICam names; absence is the expected miss
             continue
     return ""
 
@@ -899,7 +899,7 @@ def _grab_result_timestamp(result: Any) -> int | None:
             value = value() if callable(value) else value
             if value is not None:
                 return int(value)
-        except Exception:
+        except Exception:  # noqa: S112 - probing alternative GenICam names; absence is the expected miss
             continue
     return None
 
@@ -1113,7 +1113,7 @@ def _enum_values(node: Any | None, pylon: Any) -> tuple[str, ...]:
         if callable(getter):
             try:
                 return tuple(str(item) for item in getter())
-            except Exception:
+            except Exception:  # noqa: S112 - probing alternative enumeration getters across pylon versions
                 continue
     try:
         return tuple(str(item) for item in getattr(node, "Symbolics"))
@@ -1181,7 +1181,7 @@ def _try_set_minimum(node: Any | None, pylon: Any) -> bool:
         method = getattr(node, "TrySetToMinimum", None)
         if callable(method):
             return bool(method())
-    except Exception:
+    except Exception:  # noqa: S110 - TrySetToMinimum is optional; the explicit minimum path follows
         pass
     minimum = _node_number(node, "GetMin", "Min")
     return _set_numeric_node(node, minimum, pylon, integer=True)
@@ -1194,7 +1194,7 @@ def _try_set_maximum(node: Any | None, pylon: Any) -> bool:
         method = getattr(node, "TrySetToMaximum", None)
         if callable(method):
             return bool(method())
-    except Exception:
+    except Exception:  # noqa: S110 - TrySetToMaximum is optional; the explicit maximum path follows
         pass
     maximum = _node_number(node, "GetMax", "Max")
     return _set_numeric_node(node, maximum, pylon, integer=True)

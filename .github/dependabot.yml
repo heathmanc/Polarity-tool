@@ -1,0 +1,24 @@
+version: 2
+
+updates:
+  # Python runtime and tooling. Dependency bounds live in pyproject.toml; the
+  # requirements-*.txt files mirror them for station installs, so an accepted
+  # bump usually needs both updated together.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        patterns:
+          - pytest*
+          - ruff
+
+  # Workflow actions. Pinned major versions still receive security fixes only
+  # when something bumps them.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5

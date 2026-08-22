@@ -1041,7 +1041,7 @@ class SettingsPage(QWidget):
                 if signal is not None:
                     try:
                         signal.connect(callback)
-                    except Exception:
+                    except Exception:  # noqa: S110 - widgets expose different signals; a missing one is not an error
                         pass
 
         for widget in widgets:

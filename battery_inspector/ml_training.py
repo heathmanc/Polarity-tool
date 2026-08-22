@@ -845,7 +845,7 @@ def training_environment() -> dict[str, Any]:
             result["nvidia_hardware_names"] = [
                 line.strip() for line in probe.stdout.splitlines() if line.strip()
             ]
-    except Exception:
+    except Exception:  # noqa: S110 - no nvidia-smi is a normal CPU-only workstation, not an error
         pass
     try:
         import torch  # type: ignore
@@ -1043,7 +1043,7 @@ def train_classifier(
             )
 
         model.add_callback("on_train_epoch_end", on_train_epoch_end)
-    except Exception:
+    except Exception:  # noqa: S110 - callback contract varies by Ultralytics version; UI degrades
         # Older/newer Ultralytics callback contracts are allowed; the UI keeps an
         # indeterminate/phase progress display if epoch callbacks are unavailable.
         pass

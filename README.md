@@ -1268,6 +1268,9 @@ Pole-Position/
 |-- README.md                         current project/handoff authority
 |-- BUILD_NOTES.md                    current build and schema identity
 |-- BUILD_WINDOWS_INSTALLER.cmd       simple CPU installer wrapper
+|-- CONTRIBUTING.md                   development setup and change expectations
+|-- LICENSE                           proprietary terms
+|-- SECURITY.md                       private vulnerability reporting
 |-- SHA256SUMS.txt                    tracked source integrity manifest
 |-- config.example.json               station configuration example
 |-- pyproject.toml                    package metadata and dev tooling
@@ -1278,11 +1281,18 @@ Pole-Position/
 |   |-- controller.py                 orchestration and state ownership
 |   |-- config.py                     persistent station configuration
 |   |-- models.py                     recipes/results/domain contracts
-|   |-- paths.py                      source/frozen resource and data roots
+|   |-- paths.py                      resource/data roots and disk health
 |   |-- baseline.py                   legacy clean-baseline migration
 |   |-- evidence.py                   evidence, retention, references
 |   |-- ml_training.py                sample store, split, train/export
 |   |-- station_transfer.py           backup, staged restore, rollback
+|   |-- dataset.py                    grouped, leakage-safe dataset preparation
+|   |-- recipe_draft.py               wizard-side recipe drafting
+|   |-- roi_geometry.py               taught-circle crop contract geometry
+|   |-- activity.py                   busy/activity tracking
+|   |-- build_info.py                 software build identity
+|   |-- ui_state.py                   derived run-state for the HMI
+|   |-- table_utils.py                table formatting helpers
 |   |-- data/repository.py            SQLite persistence/migrations
 |   |-- services/
 |   |   |-- camera.py                 Basler and mock acquisition
@@ -1294,6 +1304,10 @@ Pole-Position/
 |   `-- ui/
 |       |-- main_window.py             fixed HMI shell/navigation
 |       |-- pages/                     Overview, Inspection, Recipes, ML, etc.
+|       |-- widgets.py                 shared ISA-101 widgets
+|       |-- image_widgets.py           ROI drawing and image review
+|       |-- palette.py                 role and alarm colors
+|       |-- theme.qss                  application stylesheet
 |       `-- wizard/recipe_wizard.py    seven-step recipe workflow
 |-- packaging/windows/
 |   |-- build-installer.ps1           controlled Windows build
@@ -1304,7 +1318,11 @@ Pole-Position/
 |-- tests/                             automated regressions and fixtures
 |-- docs/                              subsystem guides and release notes
 |-- models/README.md                   separate model-package instructions
-`-- .github/workflows/ci.yml           CI definition
+`-- .github/
+    |-- workflows/ci.yml               CI definition
+    |-- dependabot.yml                 dependency update schedule
+    |-- CODEOWNERS                     review ownership
+    `-- pull_request_template.md       change checklist
 ```
 
 ## Documentation index
@@ -1324,6 +1342,14 @@ Current subsystem guides:
 - [HMI philosophy](docs/HMI_PHILOSOPHY.md)
 - [HMI style guide](docs/HMI_STYLE_GUIDE.md)
 - [UI contract](docs/UI_CONTRACT.md)
+
+Project governance:
+
+- [Contributing](CONTRIBUTING.md) — development setup, the checks CI runs, and
+  what a behavior change must update
+- [Security policy](SECURITY.md) — private vulnerability reporting and the
+  scope notes specific to this application
+- [License](LICENSE) — proprietary; no rights are granted by receiving a copy
 
 Release notes under `docs/RELEASE_NOTES_v*.md` are historical records. Older
 commissioning documents and `IMPLEMENTATION_ROADMAP.md` are useful design
