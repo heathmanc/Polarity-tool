@@ -4,6 +4,15 @@ updates:
   # Python runtime and tooling. Dependency bounds live in pyproject.toml; the
   # requirements-*.txt files mirror them for station installs, so an accepted
   # bump usually needs both updated together.
+  #
+  # Major bumps of the production runtime are not proposed automatically. A new
+  # OpenCV, ONNX Runtime, NumPy, Qt, pylon, or training-stack major version can
+  # change graded inspection behavior, and the README's change-control section
+  # requires a deliberate requalification -- regressions re-run, recipes
+  # revalidated, release notes and BUILD_NOTES updated -- rather than a routine
+  # dependency PR. Raise those upper bounds by hand as part of that work.
+  # Minor and patch updates still arrive here, and this does not stop GitHub
+  # from alerting on a published vulnerability.
   - package-ecosystem: pip
     directory: "/"
     schedule:
@@ -14,9 +23,30 @@ updates:
         patterns:
           - pytest*
           - ruff
+    ignore:
+      - dependency-name: PySide6
+        update-types: ["version-update:semver-major"]
+      - dependency-name: numpy
+        update-types: ["version-update:semver-major"]
+      - dependency-name: opencv-python-headless
+        update-types: ["version-update:semver-major"]
+      - dependency-name: onnxruntime
+        update-types: ["version-update:semver-major"]
+      - dependency-name: pypylon
+        update-types: ["version-update:semver-major"]
+      - dependency-name: pycomm3
+        update-types: ["version-update:semver-major"]
+      - dependency-name: torch
+        update-types: ["version-update:semver-major"]
+      - dependency-name: torchvision
+        update-types: ["version-update:semver-major"]
+      - dependency-name: ultralytics
+        update-types: ["version-update:semver-major"]
+      - dependency-name: onnx
+        update-types: ["version-update:semver-major"]
 
-  # Workflow actions. Pinned major versions still receive security fixes only
-  # when something bumps them.
+  # Workflow actions. Major bumps are fine to propose here: a broken action
+  # fails CI immediately and visibly, and cannot reach a commissioned station.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

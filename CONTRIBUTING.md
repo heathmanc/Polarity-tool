@@ -75,6 +75,21 @@ file must be tracked before it can be recorded.
 - A change to graded behavior needs a regression that fails against the previous
   code. Verify that it does.
 
+## Dependency updates
+
+Dependabot proposes minor and patch updates monthly, plus GitHub Actions
+updates. It deliberately does **not** propose major bumps of the production
+runtime — Qt, NumPy, OpenCV, ONNX Runtime, pypylon, pycomm3, or the training
+stack. A new major version of any of those can change graded inspection
+behavior, so raising an upper bound in `pyproject.toml` is part of a
+requalification: re-run the regressions, confirm the smoke-test outcomes are
+unchanged, revalidate recipes if a decision contract moved, and update
+`BUILD_NOTES.md` and the release note. Do it deliberately, not by merging a
+routine dependency PR.
+
+Remember that `requirements-*.txt` mirrors the `pyproject.toml` bounds for
+station installs; an accepted bump usually needs both.
+
 ## Behavior changes
 
 Per the README's change-control section, a behavior change must update the code,
