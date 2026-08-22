@@ -7,7 +7,7 @@
 #   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 #
 # CPU-only systems may install this file directly.
-torch>=2.2
+torch>=2.13.0
 torchvision>=0.17
 ultralytics>=8.3,<9
 onnx>=1.16,<2
