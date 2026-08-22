@@ -90,6 +90,18 @@ routine dependency PR.
 Remember that `requirements-*.txt` mirrors the `pyproject.toml` bounds for
 station installs; an accepted bump usually needs both.
 
+torch and torchvision are not managed by Dependabot at all. Their floors are
+deliberately low so the CUDA build a GPU workstation installed first still
+satisfies them; raising the floor would reject that build. Pick those versions
+with the workstation's CUDA support in mind.
+
+**A bot PR cannot regenerate `SHA256SUMS.txt`,** so every Dependabot PR fails
+the checksum step on Linux while passing everything else. That failure is the
+manifest being stale, not the dependency being bad — read the rest of the matrix
+before judging the update. To accept one, apply the change with the manifest
+regenerated in the same commit, either by pushing that commit to the bot's
+branch or by making the edit directly and letting Dependabot close its own PR.
+
 ## Behavior changes
 
 Per the README's change-control section, a behavior change must update the code,

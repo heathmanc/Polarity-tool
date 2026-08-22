@@ -24,6 +24,7 @@ updates:
           - pytest*
           - ruff
     ignore:
+      # Production runtime: a new major can change graded inspection behavior.
       - dependency-name: PySide6
         update-types: ["version-update:semver-major"]
       - dependency-name: numpy
@@ -36,14 +37,20 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: pycomm3
         update-types: ["version-update:semver-major"]
-      - dependency-name: torch
-        update-types: ["version-update:semver-major"]
-      - dependency-name: torchvision
-        update-types: ["version-update:semver-major"]
       - dependency-name: ultralytics
         update-types: ["version-update:semver-major"]
       - dependency-name: onnx
         update-types: ["version-update:semver-major"]
+
+      # torch/torchvision are not managed here at all. Their floors in
+      # requirements-training.txt are deliberately low so that the CUDA build a
+      # GPU workstation installed first -- per the instructions at the top of
+      # that file -- continues to satisfy them. Raising the floor would reject
+      # that deliberately chosen build and force a reinstall, which is the
+      # opposite of what the constraint is for. Choose these versions with the
+      # workstation's CUDA support, not on a dependency schedule.
+      - dependency-name: torch
+      - dependency-name: torchvision
 
   # Workflow actions. Major bumps are fine to propose here: a broken action
   # fails CI immediately and visibly, and cannot reach a commissioned station.
