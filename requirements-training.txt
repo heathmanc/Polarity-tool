@@ -8,7 +8,7 @@
 #
 # CPU-only systems may install this file directly.
 torch>=2.2
-torchvision>=0.17
+torchvision>=0.28.0
 ultralytics>=8.3,<9
 onnx>=1.16,<2
 onnxruntime>=1.18,<2
