@@ -1,0 +1,30 @@
+POLE POSITION MODEL FILES
+=========================
+
+The Pole Position installer intentionally does not contain model weights.
+
+Production inference package
+----------------------------
+Copy both qualified files supplied by Quality/Engineering to this workstation,
+then select them under Settings > Vision / ML and choose Save & Apply:
+
+  polarity_classifier.onnx
+  polarity_classifier.json
+
+The JSON manifest must belong to the ONNX file. Pole Position verifies the
+model SHA-256 and four-class PLUS/MINUS/BLANK/INVALID_MARKING contract before it
+can be used for a new recipe revision. Recipes bound to a different model hash
+remain NOT READY until revised and physically validated.
+
+Training base checkpoint
+------------------------
+For fully offline training, place the separately supplied Ultralytics
+classification base checkpoint under the station runtime directory:
+
+  C:\ProgramData\Pole Position\runtime\models\training\yolo11n-cls.pt
+
+The ML Training page defaults to that path. An engineer can browse to another
+compatible classification checkpoint when a different model size is being
+qualified.
+
+Do not rename a model manifest or pair it with another ONNX file.

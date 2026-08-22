@@ -1,0 +1,11 @@
+# Pole Position full installation: HMI + camera/PLC + in-HMI ML training.
+# Python 3.11 x64 is the qualified project baseline.
+#
+# NVIDIA training workstation note:
+# Install the CUDA-enabled PyTorch wheel appropriate to the GPU/driver FIRST.
+# Example for Blackwell/RTX 50-series systems:
+#   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# Then install this file. Ultralytics will reuse the installed CUDA torch build.
+# A fresh install without a CUDA torch package may receive a CPU torch build.
+-r requirements-runtime.txt
+-r requirements-training.txt

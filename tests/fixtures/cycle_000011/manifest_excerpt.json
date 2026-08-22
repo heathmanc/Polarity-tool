@@ -1,0 +1,644 @@
+{
+  "software": {
+    "application": "Polarity Tool",
+    "application_version": "0.8.0",
+    "git_commit": "unknown",
+    "inspection_engine": "reference_registration_rotation_invariant_hybrid_v2",
+    "manifest_schema_version": 4,
+    "record_schema_version": 4
+  },
+  "cycle": {
+    "cycle_id": "CYCLE-20260819-164558-840160-000011",
+    "trigger_source": "MANUAL"
+  },
+  "recipe": {
+    "classifier_settings": {
+      "acceptance_threshold": 0.58,
+      "blank_maximum_signal": 0.045,
+      "hybrid_conflict_template_threshold": 0.7,
+      "hybrid_geometry_weight": 0.75,
+      "hybrid_minimum_template_confirmation": 0.12,
+      "maximum_clipped_fraction": 0.55,
+      "maximum_residual_rotation_deg": 8.0,
+      "maximum_shift_px": 6,
+      "method": "reference_template",
+      "minimum_confidence": 0.7,
+      "minimum_contrast": 12.0,
+      "minimum_margin": 0.04,
+      "minimum_sharpness": 5.0,
+      "minus_maximum_orthogonal_ratio": 0.25,
+      "minus_minimum_signal": 0.1,
+      "normalized_size_px": 256,
+      "plus_minimum_orthogonal_ratio": 0.45,
+      "plus_minimum_signal": 0.06,
+      "rotation_step_deg": 4.0,
+      "terminal_top_minimum_confidence": 0.8
+    },
+    "engine": {
+      "classifier_status": "ROTATION_INVARIANT_HYBRID_V2",
+      "locator_status": "REFERENCE_FEATURE_HOMOGRAPHY"
+    },
+    "locator_settings": {
+      "detector": "AUTO",
+      "feature_count": 4000,
+      "match_ratio": 0.72,
+      "max_detection_dimension": 1600,
+      "maximum_median_error_px": 8.0,
+      "maximum_scale": 1.45,
+      "method": "reference_features",
+      "minimum_inlier_ratio": 0.35,
+      "minimum_inliers": 12,
+      "minimum_matches": 18,
+      "minimum_orientation_margin": 0.035,
+      "minimum_scale": 0.65,
+      "minimum_visible_fraction": 0.85,
+      "orientation_max_dimension": 512,
+      "ransac_threshold_px": 8.0
+    },
+    "name": "TANK",
+    "orientation_reference": "terminal_layout_and_case_outline",
+    "recipe_id": "f87e3d91-e5cd-477a-bfaa-374e38d05378",
+    "reference_image": {
+      "camera_backend": "pypylon",
+      "camera_description": "Basler acA5472-17uc (25530059) | USB3 | S/N 25530059",
+      "camera_frame_id": "20",
+      "camera_profile": {
+        "capabilities": {
+          "current_exposure_auto": "Off",
+          "current_gain_auto": "Off",
+          "current_pixel_format": "BayerRG8",
+          "current_trigger_mode": "On",
+          "current_trigger_source": "Software",
+          "device": {
+            "device_class": "BaslerUsb",
+            "friendly_name": "Basler acA5472-17uc (25530059)",
+            "index": 0,
+            "model_name": "acA5472-17uc",
+            "serial_number": "25530059",
+            "transport": "USB3",
+            "user_defined_name": ""
+          },
+          "exposure_auto_modes": [
+            "Off",
+            "Once",
+            "Continuous"
+          ],
+          "exposure_us": {
+            "available": true,
+            "current": 9997.0,
+            "increment": 13.0,
+            "maximum": 10000003.0,
+            "minimum": 13.0,
+            "name": "Exposure",
+            "unit": "us",
+            "writable": true
+          },
+          "frame_rate_enable_available": true,
+          "frame_rate_enabled": false,
+          "frame_rate_hz": {
+            "available": true,
+            "current": 28.99979700142099,
+            "increment": 0.0,
+            "maximum": 1000000.0,
+            "minimum": 0.006705522577199474,
+            "name": "Frame rate",
+            "unit": "Hz",
+            "writable": true
+          },
+          "gain_auto_modes": [
+            "Off",
+            "Once",
+            "Continuous"
+          ],
+          "gain_db": {
+            "available": true,
+            "current": -0.0,
+            "increment": 0.0,
+            "maximum": 27.045771199653988,
+            "minimum": -0.0,
+            "name": "Gain",
+            "unit": "dB",
+            "writable": true
+          },
+          "height": {
+            "available": true,
+            "current": 3648.0,
+            "increment": 2.0,
+            "maximum": 3672.0,
+            "minimum": 6.0,
+            "name": "Height",
+            "unit": "px",
+            "writable": true
+          },
+          "offset_x": {
+            "available": true,
+            "current": 12.0,
+            "increment": 4.0,
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "name": "Offset X",
+            "unit": "px",
+            "writable": true
+          },
+          "offset_y": {
+            "available": true,
+            "current": 12.0,
+            "increment": 2.0,
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "name": "Offset Y",
+            "unit": "px",
+            "writable": true
+          },
+          "pixel_formats": [
+            "Mono8",
+            "BayerRG8",
+            "BayerRG12",
+            "BayerRG12p",
+            "RGB8",
+            "BGR8",
+            "YCbCr422_8"
+          ],
+          "sensor_height_px": 3672,
+          "sensor_width_px": 5496,
+          "trigger_modes": [
+            "Off",
+            "On"
+          ],
+          "trigger_sources": [
+            "Software",
+            "Line1",
+            "Line3",
+            "Line4",
+            "SoftwareSignal1",
+            "SoftwareSignal2",
+            "SoftwareSignal3"
+          ],
+          "width": {
+            "available": true,
+            "current": 5472.0,
+            "increment": 4.0,
+            "maximum": 5496.0,
+            "minimum": 8.0,
+            "name": "Width",
+            "unit": "px",
+            "writable": true
+          }
+        },
+        "effective": {
+          "center_roi": true,
+          "device_id": "",
+          "exposure_auto": "CameraDefault",
+          "exposure_us": 9997.0,
+          "frame_rate_enabled": false,
+          "frame_rate_fps": 10.0,
+          "gain_auto": "CameraDefault",
+          "gain_db": 0.0,
+          "height": 3648,
+          "offset_x": 12,
+          "offset_y": 12,
+          "pixel_format": "",
+          "resolution_mode": "CameraDefault",
+          "selection_mode": "first_available",
+          "timeout_ms": 3000,
+          "trigger_mode": "On",
+          "trigger_source": "Software",
+          "width": 5472
+        },
+        "requested": {
+          "center_roi": true,
+          "device_id": "",
+          "exposure_auto": "CameraDefault",
+          "exposure_us": 9997.0,
+          "frame_rate_enabled": false,
+          "frame_rate_fps": 10.0,
+          "gain_auto": "CameraDefault",
+          "gain_db": 0.0,
+          "height": 3648,
+          "offset_x": 12,
+          "offset_y": 12,
+          "pixel_format": "",
+          "resolution_mode": "CameraDefault",
+          "selection_mode": "first_available",
+          "timeout_ms": 3000,
+          "trigger_mode": "On",
+          "trigger_source": "Software",
+          "width": 5472
+        }
+      },
+      "camera_timestamp_raw": 69382014277554,
+      "capture_id": "e306e0bc-5822-40c4-b8d0-3060ae1c1bc3",
+      "captured_at_utc": "2026-08-19T14:06:14.193912+00:00",
+      "channels": 3,
+      "frame_id": "CAM-00000020-0c3cc9b5",
+      "frame_sequence": 20,
+      "height_px": 3648,
+      "path": "C:\\yolo\\battery_inspector_first_go\\runtime\\recipes\\f87e3d91-e5cd-477a-bfaa-374e38d05378\\revision_0008\\reference.png",
+      "quality": {
+        "channels": 3,
+        "clipped_fraction": 0.00016706863329742484,
+        "dark_fraction": 0.001261305561967785,
+        "height_px": 3648,
+        "mean_level": 79.69130856369267,
+        "reason": "OK",
+        "sharpness": 50.34328581632388,
+        "status": "GOOD",
+        "width_px": 5472
+      },
+      "sha256": "5a2c8315bdd696cff080f9b6b650091e3dd92b5a0d71785fe4085f4d342c8897",
+      "source": "RECIPE_WIZARD",
+      "width_px": 5472
+    },
+    "revision": 8,
+    "validation": {
+      "configuration_hash": "a7aaff5a81c8c8d0d4f4d881ce541dfb5c2f7591aa998084b6ed8f8b4acf9af0",
+      "passed": 5,
+      "required": 5
+    }
+  },
+  "result": {
+    "disposition": "reject",
+    "reason": "TERMINAL MARKING MISMATCH",
+    "classifier_status": "ROTATION_INVARIANT_HYBRID_V2",
+    "locator_status": "REFERENCE_FEATURE_HOMOGRAPHY",
+    "terminals": [
+      {
+        "analysis_note": "MINUS stamp geometry at -42.0 degrees; top lock 91.5%; template confirmation 0.713; hybrid 0.899",
+        "class_scores": {
+          "minus": 0.8994055265223591,
+          "plus": 0.1293855678198925
+        },
+        "classification_metrics": {
+          "baseline_response": 0.39976996183395386,
+          "best_template_matches": {
+            "minus": {
+              "canonical_rotation_deg": 52.0,
+              "correlation": 0.6842676401138306,
+              "energy_ratio": 0.9228393242376909,
+              "mode": "stamp_angle_canonical",
+              "rotation_deg": 52.0,
+              "score": 0.7128962422086937,
+              "shift_x_px": 0,
+              "shift_y_px": 2
+            },
+            "plus": {
+              "canonical_rotation_deg": -36.0,
+              "correlation": 0.4574029743671417,
+              "energy_ratio": 0.9585637819707108,
+              "mode": "stamp_angle_canonical",
+              "rotation_deg": -36.0,
+              "score": 0.51754227127957,
+              "shift_x_px": 1,
+              "shift_y_px": -6
+            }
+          },
+          "blank_gate": false,
+          "classification_gate": 0.7,
+          "clipped_fraction": 0.0,
+          "contrast": 37.70817023399827,
+          "contrast_p95_p5": 33.0,
+          "decision_mode": "rotation_invariant_hybrid",
+          "geometry_confidence": 0.9615752879602475,
+          "geometry_marking": "minus",
+          "geometry_scores": {
+            "blank": 0.0,
+            "minus": 0.9615752879602475,
+            "plus": 0.11603195346680006,
+            "unreadable": 0.03842471203975251
+          },
+          "geometry_status": "ONE_DOMINANT_LINE",
+          "geometry_template_confirmation": 0.7128962422086937,
+          "hybrid_geometry_weight": 0.75,
+          "hybrid_scores": {
+            "minus": 0.8994055265223591,
+            "plus": 0.1293855678198925
+          },
+          "hybrid_template_weight": 0.25,
+          "ink_energy": 0.05997423455119133,
+          "intersection_offset_fraction": 0.12228496751951975,
+          "intersection_offset_px": 31.304951684997057,
+          "line_signal": 0.9402561783790588,
+          "mean_level": 98.76416015625,
+          "minimum_margin": 0.04,
+          "minimum_template_confirmation": 0.12,
+          "minus_center_score": 0.7514204545454546,
+          "minus_gate": true,
+          "orthogonal_angle_deg": 36.0,
+          "orthogonal_line_signal": 0.024209439754486084,
+          "orthogonal_offset_px": 28.0,
+          "orthogonal_ratio": 0.025747706115817927,
+          "orthogonal_response": 0.42397940158843994,
+          "orthogonal_signal": 0.024209439754486084,
+          "plus_center_score": 0.3206390693360013,
+          "plus_gate": false,
+          "primary_angle_deg": 138.0,
+          "primary_line_signal": 0.9402561783790588,
+          "primary_offset_fraction": 0.0546875,
+          "primary_offset_px": 14.0,
+          "primary_response": 1.3400261402130127,
+          "quality_gate": "PASSED",
+          "required_score": 0.7,
+          "same_terminal_match": {
+            "canonical_rotation_deg": 52.0,
+            "correlation": 0.6842676401138306,
+            "energy_ratio": 0.9228393242376909,
+            "mode": "stamp_angle_canonical",
+            "rotation_deg": 52.0,
+            "score": 0.7128962422086937,
+            "shift_x_px": 0,
+            "shift_y_px": 2
+          },
+          "same_terminal_similarity": 0.7128962422086937,
+          "score_margin": 0.7700199587024665,
+          "second_score": 0.1293855678198925,
+          "sharpness": 35.65121350786649,
+          "sharpness_laplacian_variance": 5.765896078199148,
+          "stamp_analysis_bounds_px": [
+            92,
+            92,
+            220,
+            220
+          ],
+          "stamp_angle_deg": -42.0,
+          "template_count": 12,
+          "template_counts": {
+            "minus": 6,
+            "plus": 6
+          },
+          "template_geometry_conflict": false,
+          "template_score_margin": 0.19535397092912377,
+          "template_scores": {
+            "minus": 0.7128962422086937,
+            "plus": 0.51754227127957
+          },
+          "template_second_score": 0.51754227127957,
+          "template_top_class": "minus",
+          "template_top_score": 0.7128962422086937,
+          "terminal_top_candidate_count": 2,
+          "terminal_top_center_normalized": [
+            0.5199335548172758,
+            0.5166112956810631
+          ],
+          "terminal_top_center_px": [
+            156.5,
+            155.5
+          ],
+          "terminal_top_detection_confidence": 0.9152022700623961,
+          "terminal_top_detection_method": "HOUGH_CIRCLE",
+          "terminal_top_minimum_confidence": 0.8,
+          "terminal_top_radius_fraction": 0.31096345008013654,
+          "terminal_top_radius_px": 93.5999984741211,
+          "terminal_top_used": true,
+          "terminal_top_used_by_hybrid": true,
+          "top_class": "minus",
+          "top_score": 0.8994055265223591
+        },
+        "classification_status": "HYBRID_CLASS_ACCEPTED",
+        "detected_marking": "minus",
+        "diagnostic_image_paths": {
+          "canonical_stamp": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\negative_canonical_stamp.png",
+          "stamp_overlay": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\negative_stamp_overlay.png",
+          "stamp_response": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\negative_stamp_response.png",
+          "terminal_top": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\negative_terminal_top.png"
+        },
+        "expected_marking": "minus",
+        "marking_confidence": 0.8994055265223591,
+        "marking_crop_path": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\negative_marking.png",
+        "marking_evaluated": true,
+        "marking_pass": true,
+        "marking_polygon": [
+          [
+            0.42898162484866137,
+            0.1490896459211383
+          ],
+          [
+            0.48361188208150585,
+            0.15033728616279468
+          ],
+          [
+            0.4828223066720349,
+            0.23234144846598306
+          ],
+          [
+            0.4281766121847588,
+            0.23110662426864892
+          ]
+        ],
+        "passed": true,
+        "red_ring_confidence": 0.999,
+        "red_ring_detected": false,
+        "red_ring_expected": false,
+        "reference_marking_path": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\negative_reference_marking.png",
+        "reference_similarity": 0.7128962422086937,
+        "ring_evaluated": true,
+        "ring_pass": true,
+        "role": "negative",
+        "terminal_crop_path": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\negative_terminal.png",
+        "terminal_key": "negative",
+        "terminal_name": "Negative Terminal",
+        "terminal_polygon": [
+          [
+            0.38136037190755206,
+            0.09712632497151692
+          ],
+          [
+            0.533083999366091,
+            0.10061402906451308
+          ],
+          [
+            0.53092903003358,
+            0.3284059156451309
+          ],
+          [
+            0.37908583077770924,
+            0.3250170925207305
+          ]
+        ]
+      },
+      {
+        "analysis_note": "No taught marking reached threshold 0.700; best was MINUS at 0.305",
+        "class_scores": {
+          "minus": 0.3051066493024941,
+          "plus": 0.14326168704452283
+        },
+        "classification_metrics": {
+          "baseline_response": 0.534974992275238,
+          "best_template_matches": {
+            "minus": {
+              "canonical_rotation_deg": 0.0,
+              "correlation": 0.29569748044013977,
+              "energy_ratio": 0.37410722095975896,
+              "mode": "bounded_residual",
+              "rotation_deg": -4.0,
+              "score": 0.3051066493024941,
+              "shift_x_px": 6,
+              "shift_y_px": 6
+            },
+            "plus": {
+              "canonical_rotation_deg": 0.0,
+              "correlation": 0.11719141155481339,
+              "energy_ratio": 0.3344437073023922,
+              "mode": "bounded_residual",
+              "rotation_deg": 8.0,
+              "score": 0.14326168704452283,
+              "shift_x_px": 3,
+              "shift_y_px": 0
+            }
+          },
+          "blank_gate": false,
+          "classification_gate": 0.7,
+          "clipped_fraction": 0.00604248046875,
+          "contrast": 35.82628669214013,
+          "contrast_p95_p5": 41.0,
+          "decision_mode": "reference_template_fallback",
+          "geometry_confidence": 0.9590619418444776,
+          "geometry_marking": "plus",
+          "geometry_scores": {
+            "blank": 0.0,
+            "minus": 0.1428977272727273,
+            "plus": 0.9590619418444776,
+            "unreadable": 0.04093805815552243
+          },
+          "geometry_status": "TWO_PERPENDICULAR_LINES",
+          "ink_energy": 0.17903552949428558,
+          "intersection_offset_fraction": 0.04419417382415922,
+          "intersection_offset_px": 11.313708498984761,
+          "line_signal": 0.5756589770317078,
+          "mean_level": 91.50674438476562,
+          "minimum_margin": 0.04,
+          "minus_center_score": 0.8579545454545454,
+          "minus_gate": false,
+          "orthogonal_angle_deg": 108.0,
+          "orthogonal_line_signal": 0.436689555644989,
+          "orthogonal_offset_px": 8.0,
+          "orthogonal_ratio": 0.7585907161505723,
+          "orthogonal_response": 0.971664547920227,
+          "orthogonal_signal": 0.436689555644989,
+          "plus_center_score": 0.7544768120880043,
+          "plus_gate": true,
+          "primary_angle_deg": 18.0,
+          "primary_line_signal": 0.5756589770317078,
+          "primary_offset_fraction": 0.03125,
+          "primary_offset_px": 8.0,
+          "primary_response": 1.1106339693069458,
+          "quality_gate": "PASSED",
+          "required_score": 0.7,
+          "same_terminal_match": {
+            "canonical_rotation_deg": 0.0,
+            "correlation": 0.11719141155481339,
+            "energy_ratio": 0.3344437073023922,
+            "mode": "bounded_residual",
+            "rotation_deg": 8.0,
+            "score": 0.14326168704452283,
+            "shift_x_px": 3,
+            "shift_y_px": 0
+          },
+          "same_terminal_similarity": 0.14326168704452283,
+          "score_margin": 0.16184496225797126,
+          "second_score": 0.14326168704452283,
+          "sharpness": 838.984637554735,
+          "sharpness_laplacian_variance": 14.029220562195405,
+          "stamp_analysis_bounds_px": [
+            192,
+            130,
+            332,
+            270
+          ],
+          "stamp_angle_deg": 18.0,
+          "template_count": 12,
+          "template_counts": {
+            "minus": 6,
+            "plus": 6
+          },
+          "template_score_margin": 0.16184496225797126,
+          "template_scores": {
+            "minus": 0.3051066493024941,
+            "plus": 0.14326168704452283
+          },
+          "template_second_score": 0.14326168704452283,
+          "template_top_class": "minus",
+          "template_top_score": 0.3051066493024941,
+          "terminal_top_candidate_count": 4,
+          "terminal_top_center_normalized": [
+            0.6440886699507389,
+            0.49137931034482757
+          ],
+          "terminal_top_center_px": [
+            261.5,
+            199.5
+          ],
+          "terminal_top_detection_confidence": 0.7378569743290205,
+          "terminal_top_detection_method": "HOUGH_CIRCLE",
+          "terminal_top_minimum_confidence": 0.8,
+          "terminal_top_radius_fraction": 0.25418718460158174,
+          "terminal_top_radius_px": 103.19999694824219,
+          "terminal_top_used": false,
+          "terminal_top_used_by_hybrid": false,
+          "top_class": "minus",
+          "top_score": 0.3051066493024941
+        },
+        "classification_status": "NO_TAUGHT_CLASS_MATCH",
+        "detected_marking": "other",
+        "diagnostic_image_paths": {
+          "canonical_stamp": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\positive_canonical_stamp.png",
+          "stamp_overlay": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\positive_stamp_overlay.png",
+          "stamp_response": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\positive_stamp_response.png",
+          "terminal_top": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\positive_terminal_top.png"
+        },
+        "expected_marking": "plus",
+        "marking_confidence": 0.6948933506975059,
+        "marking_crop_path": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\positive_marking.png",
+        "marking_evaluated": true,
+        "marking_pass": false,
+        "marking_polygon": [
+          [
+            0.7857188620762519,
+            0.7417215715374863
+          ],
+          [
+            0.8596063803511056,
+            0.7432820504171807
+          ],
+          [
+            0.8586805020159448,
+            0.8545460617333128
+          ],
+          [
+            0.7847646969800804,
+            0.8530092072068599
+          ]
+        ],
+        "passed": false,
+        "red_ring_confidence": 0.999,
+        "red_ring_detected": true,
+        "red_ring_expected": true,
+        "reference_marking_path": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\positive_reference_marking.png",
+        "reference_similarity": 0.14326168704452283,
+        "ring_evaluated": true,
+        "ring_pass": true,
+        "role": "positive",
+        "terminal_crop_path": "C:\\yolo\\battery_inspector_first_go\\runtime\\inspections\\20260819\\CYCLE-20260819-164558-840160-000011\\positive_terminal.png",
+        "terminal_key": "positive",
+        "terminal_name": "Positive Terminal",
+        "terminal_polygon": [
+          [
+            0.7376563981262564,
+            0.6628913210149396
+          ],
+          [
+            0.9026493719446729,
+            0.6664135581568668
+          ],
+          [
+            0.9006178114149306,
+            0.9148857384397272
+          ],
+          [
+            0.735483403791461,
+            0.9114811545924136
+          ]
+        ]
+      }
+    ]
+  }
+}

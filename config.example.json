@@ -1,0 +1,44 @@
+{
+  "camera_backend": "auto",
+  "plc_backend": "simulation",
+  "fullscreen": false,
+  "data_directory": "",
+  "camera": {
+    "timeout_ms": 3000,
+    "pixel_format": "",
+    "resolution_mode": "CameraDefault",
+    "width": 0,
+    "height": 0,
+    "center_roi": true,
+    "offset_x": 0,
+    "offset_y": 0,
+    "exposure_auto": "CameraDefault",
+    "exposure_us": 0.0,
+    "gain_auto": "CameraDefault",
+    "gain_db": 0.0,
+    "frame_rate_enabled": false,
+    "frame_rate_fps": 10.0
+  },
+  "ml": {
+    "model_path": "models/polarity_classifier.onnx",
+    "manifest_path": "models/polarity_classifier.json",
+    "use_for_new_revisions": true
+  },
+  "plc_address": "192.168.1.10/1",
+  "plc_poll_ms": 250,
+  "plc_recipe_selector": "name",
+  "failure_retention_days": 30,
+  "failure_retention_max_gb": 5.0,
+  "operator_name": "Technician",
+  "tags": {
+    "trigger": "BatteryVision.Trigger",
+    "busy": "BatteryVision.Busy",
+    "complete": "BatteryVision.Complete",
+    "pass_result": "BatteryVision.Pass",
+    "fail": "BatteryVision.Fail",
+    "recipe_name": "BatteryVision.RecipeName",
+    "heartbeat": "BatteryVision.Heartbeat",
+    "bypass": "BatteryVision.Bypass"
+  },
+  "plc_heartbeat_ms": 1000
+}

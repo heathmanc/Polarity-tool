@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+runtime/
+dataset/
+config.json
+*.log
+build/
+dist/
+*.egg-info/
+# Generated ML assets are site-controlled. Add with -f only after qualification.
+models/*.onnx
+models/*.pt
+models/polarity_classifier.json
+models/training_runs/

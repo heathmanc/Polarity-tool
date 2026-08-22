@@ -1,0 +1,7 @@
+{
+  "baseline_id": "v0.17-clean-circle-ml",
+  "created_by": "Pole Position Windows installer",
+  "reset_performed": false,
+  "installer_baseline": true,
+  "note": "Fresh v0.23+ installation already uses the current runtime and ML contract."
+}

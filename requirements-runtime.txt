@@ -1,0 +1,5 @@
+# Pole Position production/runtime dependencies.
+# Python 3.11 x64 is the qualified project baseline.
+-r requirements-demo.txt
+pypylon>=3.0
+pycomm3>=1.2
