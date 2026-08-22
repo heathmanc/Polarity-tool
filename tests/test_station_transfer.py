@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -22,7 +23,7 @@ from battery_inspector.station_transfer import (
 def _create_database(path: Path, old_data_root: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     reference = old_data_root / "recipes" / "recipe-1" / "revision_0001" / "reference.png"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.executescript(
             """
             CREATE TABLE recipes (
@@ -121,7 +122,7 @@ def test_backup_restore_rebases_runtime_paths_and_creates_rollback(tmp_path: Pat
     assert Path(result["rollback_backup"]).is_file()
     assert not (target_root / PENDING_RESTORE_NAME).exists()
 
-    with sqlite3.connect(target_data / "battery_inspector.db") as connection:
+    with closing(sqlite3.connect(target_data / "battery_inspector.db")) as connection:
         recipe = json.loads(connection.execute("SELECT payload_json FROM recipes").fetchone()[0])
     assert recipe["reference_image"]["path"].startswith(str(target_data))
     sample = json.loads(
@@ -195,3 +196,86 @@ def test_import_rejects_tampered_member(tmp_path: Path) -> None:
 
     with pytest.raises(StationTransferError, match="size check failed|SHA-256 check failed"):
         inspect_station_backup(tampered)
+
+
+# --- SQLite handles must not outlive their use ------------------------------
+#
+# sqlite3's connection context manager commits or rolls back but never closes.
+# A leaked handle is invisible on Linux, where an open file can still be
+# unlinked, and fatal on Windows, where it cannot: backup failed with
+# "WinError 32: The process cannot access the file because it is being used by
+# another process" when its temporary directory was cleaned up. Windows is the
+# only platform the station ships on, so these tests assert the invariant
+# directly rather than relying on the platform to expose it.
+
+
+def _connection_is_closed(connection: sqlite3.Connection) -> bool:
+    try:
+        connection.execute("SELECT 1")
+    except sqlite3.ProgrammingError:
+        return True
+    return False
+
+
+@pytest.fixture()
+def tracked_connections(monkeypatch):
+    """Record every SQLite connection station_transfer opens."""
+
+    opened: list[sqlite3.Connection] = []
+    real_connect = sqlite3.connect
+
+    def tracking_connect(*args, **kwargs):
+        connection = real_connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(
+        "battery_inspector.station_transfer.sqlite3.connect", tracking_connect
+    )
+    return opened
+
+
+def test_backup_leaves_no_open_database_handles(tmp_path: Path, tracked_connections) -> None:
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _source_station(root)
+
+    create_station_backup(root, config_path, data, tmp_path / "backup.zip")
+
+    assert tracked_connections, "The backup opened no database at all"
+    assert all(_connection_is_closed(item) for item in tracked_connections)
+
+
+def test_backup_of_a_station_without_a_database_leaves_no_open_handles(
+    tmp_path: Path, tracked_connections
+) -> None:
+    """A freshly installed station has not opened its repository yet."""
+
+    root = tmp_path / "station"
+    data = root / "runtime"
+    data.mkdir(parents=True)
+    config_path = root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(config_path)
+
+    create_station_backup(root, config_path, data, tmp_path / "backup.zip")
+
+    assert tracked_connections
+    assert all(_connection_is_closed(item) for item in tracked_connections)
+
+
+def test_restore_leaves_no_open_database_handles(tmp_path: Path, tracked_connections) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+    apply_pending_restore(target_root, target_config)
+
+    assert tracked_connections
+    assert all(_connection_is_closed(item) for item in tracked_connections)

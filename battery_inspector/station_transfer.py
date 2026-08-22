@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Iterable
@@ -100,7 +101,14 @@ def _resolve_project_path(project_root: Path, value: str) -> Path:
 def _sqlite_snapshot(source: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with sqlite3.connect(source) as source_connection, sqlite3.connect(destination) as target:
+        # closing(), not `with connection`: sqlite3's connection context manager
+        # commits or rolls back but never closes. A leaked handle keeps the file
+        # open, and Windows refuses to delete or replace an open file, so the
+        # caller's temporary directory cleanup fails with WinError 32.
+        with (
+            closing(sqlite3.connect(source)) as source_connection,
+            closing(sqlite3.connect(destination)) as target,
+        ):
             source_connection.backup(target)
             result = target.execute("PRAGMA quick_check").fetchone()
     except sqlite3.Error as exc:
@@ -167,7 +175,7 @@ def create_station_backup(
         else:
             # A newly installed destination may not have opened its repository
             # yet. Preserve that valid empty state as an inspectable SQLite file.
-            with sqlite3.connect(snapshot) as connection:
+            with closing(sqlite3.connect(snapshot)) as connection:
                 connection.execute("PRAGMA user_version")
         sources.append(("runtime/battery_inspector.db", snapshot))
 
@@ -393,7 +401,7 @@ def _extract_verified_backup(source: Path, destination: Path) -> dict[str, Any]:
 
 def _sqlite_quick_check(path: Path) -> None:
     try:
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection:
             result = connection.execute("PRAGMA quick_check").fetchone()
     except sqlite3.Error as exc:
         raise StationTransferError(f"Restored recipe database is invalid: {exc}") from exc
@@ -496,7 +504,9 @@ def _rebase_database(path: Path, mappings: list[tuple[str, Path]]) -> None:
         ("inspections", "payload_json"),
     )
     try:
-        with sqlite3.connect(path) as connection:
+        # Nested deliberately: the inner context manager commits the UPDATEs,
+        # the outer one closes the handle so the restored database can be moved.
+        with closing(sqlite3.connect(path)) as connection, connection:
             for table, field in fields:
                 exists = connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
