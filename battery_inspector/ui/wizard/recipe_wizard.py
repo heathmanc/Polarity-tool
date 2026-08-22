@@ -1021,6 +1021,11 @@ class ReadinessPage(WizardPage):
             f"{GOOD if passed >= required else AMBER};"
         )
 
+        # build_recipe() raises while the wizard data is still incomplete -- most
+        # commonly before a reference has been accepted. The blocker belongs in
+        # the displayed issue list, so the rest of this method must stay usable
+        # without a temporary recipe rather than dereferencing an unbound name.
+        temporary: Recipe | None = None
         try:
             temporary = self._temporary_recipe()
             issues = self.controller.pipeline.readiness_issues(
@@ -1035,7 +1040,9 @@ class ReadinessPage(WizardPage):
             and Path(self.data.reference_image.path).is_file()
         )
         issue_text = "NONE" if not issues else "\n".join(f"• {item}" for item in issues)
-        classifier_settings = temporary.classifier_settings.normalized()
+        classifier_settings = (
+            temporary.classifier_settings if temporary is not None else self.data.classifier_settings
+        ).normalized()
         classifier_detail = self.controller.pipeline.classifier_status_for_recipe(temporary)
         ml_detail = ""
         if classifier_settings.method == "onnx_ml":
