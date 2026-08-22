@@ -250,3 +250,37 @@ def test_validate_step_shows_the_blocker_when_no_reference_is_accepted(qapp, wiz
 
     assert wizard.stack.currentIndex() == validate_step
     assert "reference" in wizard.pages[validate_step].gates.text().lower()
+
+
+def test_diagnostics_storage_bar_shows_the_measured_volume(qapp, window, controller) -> None:
+    """Regression: the bar was a fixed 18%/82% mock that no signal updated."""
+
+    controller.health["disk"] = {
+        "ok": True,
+        "text": "40% FREE",
+        "measured": True,
+        "used_percent": 60.0,
+        "free_percent": 40.0,
+    }
+
+    controller.health_changed.emit(controller.health)
+    qapp.processEvents()
+
+    assert window.diagnostics_page.disk.value() == 60
+    assert window.diagnostics_page.disk.format() == "60% used — 40% free"
+
+
+def test_diagnostics_storage_bar_says_so_when_nothing_was_measured(
+    qapp, window, controller
+) -> None:
+    controller.health["disk"] = {"ok": False, "text": "UNKNOWN", "measured": False}
+
+    controller.health_changed.emit(controller.health)
+    qapp.processEvents()
+
+    assert window.diagnostics_page.disk.format() == "STORAGE NOT MEASURED"
+
+
+def test_header_shows_the_measured_disk_and_unmonitored_lighting(window, controller) -> None:
+    assert window.health_items["disk"].value.text().endswith("% FREE")
+    assert window.health_items["lighting"].value.text() == "NOT MONITORED"

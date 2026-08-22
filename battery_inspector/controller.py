@@ -40,6 +40,7 @@ from battery_inspector.models import (
     RecipeStatus,
     ReferenceCapture,
 )
+from battery_inspector.paths import disk_health
 from battery_inspector.roi_geometry import TAUGHT_CIRCLE_CROP_CONTRACT
 from battery_inspector.services import (
     AllenBradleyPlcService,
@@ -59,6 +60,14 @@ from battery_inspector.station_transfer import (
     create_station_backup,
     stage_station_restore,
 )
+
+
+# Lighting has no measurement path on this station. The indicator says so
+# rather than reporting a reassuring "OK" it cannot substantiate; a fault
+# state would be equally untrue, since nothing has detected a lighting fault.
+LIGHTING_HEALTH_UNMONITORED = {"ok": True, "text": "NOT MONITORED"}
+# Copied at each use site: the health dictionary is handed to the HMI, which
+# must not be able to reach back and mutate a module-level default.
 
 
 class AppController(QObject):
@@ -142,9 +151,9 @@ class AppController(QObject):
         self.recent_results: deque[bool] = deque(maxlen=13)
         self.health: dict[str, dict[str, Any]] = {
             "camera": {"ok": False, "text": "CONNECTING"},
-            "lighting": {"ok": True, "text": "OK"},
+            "lighting": dict(LIGHTING_HEALTH_UNMONITORED),
             "plc": {"ok": False, "text": "CONNECTING"},
-            "disk": {"ok": True, "text": "82% FREE"},
+            "disk": disk_health(self.data_directory),
             "vision": {"ok": False, "text": "NOT READY", "issues": []},
             "system": {"ok": False, "text": "STARTING"},
         }
@@ -1007,9 +1016,9 @@ class AppController(QObject):
             result,
             {
                 "camera": {"ok": camera_ok, "text": camera_text},
-                "lighting": {"ok": True, "text": "OK"},
+                "lighting": dict(LIGHTING_HEALTH_UNMONITORED),
                 "plc": {"ok": plc_ok, "text": plc_text},
-                "disk": {"ok": True, "text": "82% FREE"},
+                "disk": disk_health(self.data_directory),
                 "vision": {
                     "ok": vision_ready,
                     "text": "READY" if vision_ready else "NOT READY",
@@ -1616,6 +1625,7 @@ class AppController(QObject):
         self.camera_operation_busy.emit(busy)
 
     def _recalculate_system_health(self) -> None:
+        self.health["disk"] = disk_health(self.data_directory)
         camera_ok = bool(self.health.get("camera", {}).get("ok"))
         plc_ok = bool(self.health.get("plc", {}).get("ok"))
         readiness = self.pipeline.readiness_issues(self.active_recipe)
@@ -1625,6 +1635,10 @@ class AppController(QObject):
             "text": "READY" if vision_ok else "NOT READY",
             "issues": readiness,
         }
+        # Disk and lighting stay out of this calculation deliberately. Station
+        # run state is a change-controlled contract (README change-control
+        # invariants), so a low-disk warning reports to the technician without
+        # silently taking the station out of production.
         ok = camera_ok and plc_ok and vision_ok
         if not camera_ok or not plc_ok:
             text = "DEGRADED"

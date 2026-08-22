@@ -1210,9 +1210,14 @@ The following are current as-built boundaries, not hidden completed features:
   rising-edge trigger with latched latest result as documented above.
 - **Recipe mismatch is ignored/logged, not converted into a completed Fail
   transaction.** PLC timeout/permissive logic must handle it.
-- **Lighting and disk health widgets are placeholders.** The current controller
-  reports lighting `OK` and disk `82% FREE`; they are not live measurements.
-  Use Windows/site monitoring until real checks are implemented.
+- **Lighting is not measured.** The station has no lighting measurement path,
+  so the indicator reports `NOT MONITORED` rather than a health claim it cannot
+  substantiate. Use Windows/site monitoring for lighting.
+- **Disk health is measured but does not gate production.** The health bar and
+  the Diagnostics storage bar report real free space on the station data
+  volume, and the indicator faults below 2 GB or 5% free. A low-disk condition
+  is reported to the technician only; it does not change station run state,
+  which remains a change-controlled contract.
 - **Camera Auto can use a labeled demo fallback.** Production stations should
   select Basler required after commissioning if absence of the camera must keep
   the HMI faulted.

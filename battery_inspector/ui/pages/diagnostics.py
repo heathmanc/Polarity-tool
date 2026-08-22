@@ -170,8 +170,8 @@ class DiagnosticsPage(QWidget):
         disk_label = QLabel("Inspection image storage")
         resources_layout.addWidget(disk_label)
         self.disk = QProgressBar()
-        self.disk.setValue(18)
-        self.disk.setFormat("18% used — 82% free")
+        self.disk.setRange(0, 100)
+        self.set_disk_usage(controller.health.get("disk", {}))
         resources_layout.addWidget(self.disk)
         db = LabeledValue("Database", str(controller.repository.database_path))
         resources_layout.addWidget(db)
@@ -409,7 +409,20 @@ class DiagnosticsPage(QWidget):
             None if not issues else "warning",
         )
 
+    def set_disk_usage(self, state: dict) -> None:
+        """Render the measured free space on the station data volume."""
+
+        if not state.get("measured"):
+            self.disk.setValue(0)
+            self.disk.setFormat("STORAGE NOT MEASURED")
+            return
+        used_percent = float(state.get("used_percent", 0.0))
+        free_percent = float(state.get("free_percent", 0.0))
+        self.disk.setValue(int(round(used_percent)))
+        self.disk.setFormat(f"{used_percent:.0f}% used — {free_percent:.0f}% free")
+
     def set_health(self, health: dict) -> None:
+        self.set_disk_usage(health.get("disk", {}))
         for key, label in (("camera", self.camera_state), ("plc", self.plc_state)):
             state = health.get(key, {"ok": False, "text": "UNKNOWN"})
             text = str(state.get("text", "UNKNOWN"))
