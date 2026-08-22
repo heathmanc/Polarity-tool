@@ -69,6 +69,7 @@ def _recipe() -> tuple[Recipe, np.ndarray, list[TerminalRecipe]]:
     return (
         Recipe(
             recipe_id="cycle-000006",
+            recipe_number=6,
             name="Cycle 000006 regression",
             part_number="fixture",
             description="Independent terminal-head rotation regression",

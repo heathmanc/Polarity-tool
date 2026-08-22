@@ -15,7 +15,7 @@ import cv2
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 
 from battery_inspector.activity import ActivityTracker
-from battery_inspector.config import AppConfig, CameraConfig, MlConfig, merge_config
+from battery_inspector.config import AppConfig, CameraConfig, merge_config
 from battery_inspector.data import RecipeRepository
 from battery_inspector.evidence import (
     FailureRetentionPolicy,
@@ -728,7 +728,10 @@ class AppController(QObject):
         payload = json.loads(source_manifest.read_text(encoding="utf-8"))
         model_id = str(payload.get("model_id", "polarity-model") or "polarity-model")
         model_version = str(payload.get("model_version", "candidate") or "candidate")
-        safe = lambda value: "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in value)
+
+        def safe(value: str) -> str:
+            return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in value)
+
         destination = self.data_directory / "models" / safe(model_id) / safe(model_version)
         destination.mkdir(parents=True, exist_ok=True)
         target_model = destination / "polarity_classifier.onnx"

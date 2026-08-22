@@ -10,8 +10,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from battery_inspector.config import CameraConfig
-from battery_inspector.services.camera import BaslerCameraService, CameraError
+from battery_inspector.config import CameraConfig  # noqa: E402  (needs ROOT on sys.path)
+from battery_inspector.services.camera import (  # noqa: E402  (needs ROOT on sys.path)
+    BaslerCameraService,
+    CameraError,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

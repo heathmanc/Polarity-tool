@@ -13,8 +13,7 @@ from PySide6.QtWidgets import (
 
 from battery_inspector.controller import AppController
 from battery_inspector.services import CameraCapabilities
-from battery_inspector.ui.palette import AMBER, BAD, GOOD, NEUTRAL
-from battery_inspector.ui.palette import AMBER, BAD, TEXT
+from battery_inspector.ui.palette import AMBER, BAD, NEUTRAL
 from battery_inspector.ui.widgets import LabeledValue, PanelFrame
 
 

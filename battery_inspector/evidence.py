@@ -8,13 +8,16 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import cv2
 import numpy as np
 
 from battery_inspector.models import ReferenceCapture
+
+if TYPE_CHECKING:
+    from battery_inspector.services.camera import CameraFrame
 
 
 class EvidenceError(RuntimeError):

@@ -1468,7 +1468,6 @@ class SettingsPage(QWidget):
 
     def set_plc_simulation_state(self, payload: object) -> None:
         state = dict(payload)  # type: ignore[arg-type]
-        active = bool(state.get("active"))
         trigger = bool(state.get("trigger"))
         busy = bool(state.get("busy"))
         complete = bool(state.get("complete"))

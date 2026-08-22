@@ -21,8 +21,8 @@ hardware = [
   "pycomm3>=1.2",
 ]
 dev = [
-  "pytest>=8",
-  "ruff>=0.6",
+  "pytest>=8,<9",
+  "ruff>=0.6,<0.17",
 ]
 training = [
   "ultralytics>=8.3,<9",
@@ -47,3 +47,10 @@ addopts = "-q"
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+
+# Selected explicitly so the enforced rule set is a project decision rather than
+# a function of whichever Ruff release the CI runner happens to resolve. Ruff has
+# widened its implicit defaults across releases; without this block a routine
+# toolchain refresh turns CI red on rules the project never opted into.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

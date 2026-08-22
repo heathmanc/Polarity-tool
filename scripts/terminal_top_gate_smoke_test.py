@@ -94,6 +94,7 @@ def _recipe() -> tuple[Recipe, np.ndarray, list[TerminalRecipe]]:
     return (
         Recipe(
             recipe_id="cycle-000011",
+            recipe_number=11,
             name="Cycle 000011 regression",
             part_number="fixture",
             description="Conditional terminal-top acceptance regression",
