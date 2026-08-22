@@ -59,5 +59,8 @@ jobs:
       - name: Run conditional terminal-top regression
         run: python scripts/terminal_top_gate_smoke_test.py
 
+      - name: Verify tracked-source checksum manifest
+        run: python scripts/verify_source_checksums.py
+
       - name: Run Ruff
         run: python -m ruff check battery_inspector scripts tests
