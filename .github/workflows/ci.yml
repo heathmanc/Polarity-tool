@@ -11,9 +11,20 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pole Position ships as a Windows x64 station application, so the suite has
+    # to run on Windows and not only on the Linux runner that is cheaper. The
+    # full offline installer cannot be built here -- build-installer.ps1
+    # requires the licensed Basler pylon Runtime Redistributable and verifies
+    # its Authenticode signature -- so this job covers the application, and the
+    # installer remains a controlled local build per docs/WINDOWS_INSTALLER.md.
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
+      # Report every platform's result. A Windows-only failure must not be
+      # hidden by a Linux failure, or the reverse.
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12"]
 
     steps:
@@ -24,9 +35,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          architecture: x64
           cache: pip
 
       - name: Install Qt runtime libraries for the headless HMI tests
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -60,7 +73,14 @@ jobs:
         run: python scripts/terminal_top_gate_smoke_test.py
 
       - name: Verify tracked-source checksum manifest
+        # Linux only. The manifest records the bytes as committed, and Git for
+        # Windows checks text files out with CRLF line endings, so the digests
+        # would not match a Windows working tree. One verification per CI run
+        # is what the manifest is for.
+        if: runner.os == 'Linux'
         run: python scripts/verify_source_checksums.py
 
       - name: Run Ruff
+        # Lint results are platform-independent; once per Python version is enough.
+        if: runner.os == 'Linux'
         run: python -m ruff check battery_inspector scripts tests

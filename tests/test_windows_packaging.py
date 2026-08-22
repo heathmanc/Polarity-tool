@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 import subprocess
 import sys
@@ -109,3 +110,81 @@ def test_model_readme_names_both_separate_model_contracts() -> None:
     assert "polarity_classifier.onnx" in text
     assert "polarity_classifier.json" in text
     assert "training\\yolo11n-cls.pt" in text
+
+
+# --- referenced build inputs actually exist --------------------------------
+#
+# The assertions above match text in the packaging files. That catches a
+# deliberate edit but not a rename or move elsewhere in the tree: the spec can
+# keep saying "theme.qss" long after the file has moved, and the failure then
+# surfaces during a release build rather than in CI. These tests resolve the
+# paths the build really consumes.
+
+
+def _spec_path_parts(node: ast.expr) -> tuple[str, ...] | None:
+    """Reconstruct a ``str(ROOT / "a" / "b")`` expression into its parts."""
+
+    if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "str":
+        return _spec_path_parts(node.args[0])
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        left = _spec_path_parts(node.left)
+        right = _spec_path_parts(node.right)
+        return None if left is None or right is None else left + right
+    if isinstance(node, ast.Name) and node.id == "ROOT":
+        return ()
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return (node.value,)
+    return None
+
+
+def _spec_data_sources() -> list[tuple[str, ...]]:
+    tree = ast.parse((WINDOWS / "PolePosition.spec").read_text(encoding="utf-8"))
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and getattr(
+            statement.targets[0], "id", ""
+        ) == "datas":
+            assert isinstance(statement.value, ast.List)
+            sources = [_spec_path_parts(item.elts[0]) for item in statement.value.elts]
+            assert all(source is not None for source in sources), (
+                "A datas entry no longer matches the ROOT / ... form this test parses; "
+                "update _spec_path_parts alongside the spec."
+            )
+            return sources
+    raise AssertionError("PolePosition.spec no longer assigns a datas list")
+
+
+def test_spec_is_valid_python() -> None:
+    ast.parse((WINDOWS / "PolePosition.spec").read_text(encoding="utf-8"))
+
+
+def test_every_bundled_data_source_in_the_spec_exists() -> None:
+    sources = _spec_data_sources()
+
+    assert sources, "The frozen build declares no bundled data"
+    for parts in sources:
+        assert (ROOT.joinpath(*parts)).exists(), f"Spec bundles a missing path: {'/'.join(parts)}"
+
+
+def test_the_spec_bundles_the_resources_the_install_check_requires() -> None:
+    """main.py --verify-install fails the installation without these."""
+
+    bundled = {"/".join(parts) for parts in _spec_data_sources()}
+
+    assert "battery_inspector/ui/theme.qss" in bundled
+    assert "battery_inspector/assets" in bundled
+    for required in ("app_icon.png", "app_icon.ico"):
+        assert (ROOT / "battery_inspector" / "assets" / required).is_file()
+
+
+def test_installer_asset_inputs_exist() -> None:
+    assets = WINDOWS / "installer-assets"
+
+    assert (assets / "MODEL_INSTALLATION.txt").is_file()
+    assert (assets / "clean_baseline_v017.json").is_file()
+    assert (ROOT / "battery_inspector" / "assets" / "app_icon.ico").is_file()
+
+
+def test_the_build_script_and_installer_are_present_and_non_empty() -> None:
+    for name in ("build-installer.ps1", "PolePosition.iss", "PolePosition.spec"):
+        assert (WINDOWS / name).stat().st_size > 0
+    assert (ROOT / "BUILD_WINDOWS_INSTALLER.cmd").stat().st_size > 0

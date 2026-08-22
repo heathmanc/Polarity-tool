@@ -1093,7 +1093,19 @@ pipeline. `PolePosition.exe --verify-install` is a different noninteractive
 frozen-package check used by the installer.
 
 The CI definition in [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-runs pytest, three vision smoke tests, and Ruff on Python 3.11 and 3.12.
+runs pytest and the three vision smoke tests on Python 3.11 and 3.12, on both
+Windows and Linux, because the station is a Windows x64 application. Ruff and
+the source-integrity check run on Linux only: lint results are
+platform-independent, and the checksum manifest records committed bytes, which
+a Windows checkout rewrites to CRLF line endings.
+
+CI does not build the Windows installer. `build-installer.ps1` requires the
+licensed Basler pylon Runtime Redistributable and verifies its Authenticode
+signature, and that redistributable cannot be published to a hosted runner. The
+installer therefore remains a controlled local build following
+[`docs/WINDOWS_INSTALLER.md`](docs/WINDOWS_INSTALLER.md); CI verifies the
+application and that every build input the spec and installer reference is
+present.
 
 ### Source integrity
 
@@ -1104,9 +1116,17 @@ archive-substituted `_git_archival.txt`. On a system with GNU coreutils:
 sha256sum -c SHA256SUMS.txt
 ```
 
-Regenerate the manifest whenever tracked release content changes. A successful
-checksum validates bytes against that manifest; it does not establish that the
-manifest came from a trusted signer.
+Regenerate the manifest whenever tracked release content changes:
+
+```bash
+python scripts/verify_source_checksums.py --write
+```
+
+The same script without `--write` verifies the manifest and is the check CI
+runs. It reports changed digests, tracked files missing from the manifest, and
+recorded files that are no longer tracked. A successful checksum validates
+bytes against that manifest; it does not establish that the manifest came from
+a trusted signer.
 
 ### Minimum station FAT/SAT
 
