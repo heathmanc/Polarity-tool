@@ -811,11 +811,30 @@ class PolarityPage(WizardPage):
             assert isinstance(finish, QComboBox)
             assert isinstance(ring, QCheckBox)
             assert isinstance(view, ImageOverlayWidget)
-            index = marking.findData(self.data.expected_markings[key])
-            marking.setCurrentIndex(max(0, index))
-            finish_index = finish.findData(self.data.expected_finishes[key])
-            finish.setCurrentIndex(max(0, finish_index))
-            ring.setChecked(self.data.red_ring_required[key])
+            # Load every control before any of them is allowed to write back.
+            # These widgets are connected to _update_control, which copies the
+            # whole card into the draft. Without blocking, setting the marking
+            # fired that handler while the finish and ring were still at their
+            # construction defaults, and the handler overwrote the saved values
+            # in the draft with those defaults -- so the very next line read an
+            # UNSPECIFIED finish it had just erased. It only bit a terminal
+            # whose marking was not already the combo's first item, which is
+            # why an edited recipe came back with the negative terminal's
+            # finish cleared and its red-ring requirement silently switched off
+            # while the positive terminal looked fine.
+            marking.blockSignals(True)
+            finish.blockSignals(True)
+            ring.blockSignals(True)
+            try:
+                index = marking.findData(self.data.expected_markings[key])
+                marking.setCurrentIndex(max(0, index))
+                finish_index = finish.findData(self.data.expected_finishes[key])
+                finish.setCurrentIndex(max(0, finish_index))
+                ring.setChecked(self.data.red_ring_required[key])
+            finally:
+                marking.blockSignals(False)
+                finish.blockSignals(False)
+                ring.blockSignals(False)
             view.set_pixmap_source(self._crop_for(key))
             view.set_overlays(
                 [

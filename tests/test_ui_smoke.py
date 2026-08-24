@@ -21,6 +21,7 @@ from battery_inspector.models import (
     Marking,
     NormalizedRect,
     Recipe,
+    TerminalFinish,
     TerminalRecipe,
     TerminalRole,
 )
@@ -284,3 +285,83 @@ def test_diagnostics_storage_bar_says_so_when_nothing_was_measured(
 def test_header_shows_the_measured_disk_and_unmonitored_lighting(window, controller) -> None:
     assert window.health_items["disk"].value.text().endswith("% FREE")
     assert window.health_items["lighting"].value.text() == "NOT MONITORED"
+
+
+def _graded_recipe() -> Recipe:
+    """A recipe whose gates a reversed or wrong-finish part would fail.
+
+    The negative terminal deliberately expects MINUS, which is not the first
+    entry in the marking combo. That detail is the whole point: the defect this
+    guards against only reached a terminal whose stored marking differed from
+    the combo's construction default.
+    """
+
+    return Recipe.new(
+        name="GATED",
+        recipe_number=51,
+        part_number="PN-51",
+        description="Edit round-trip fixture",
+        created_by="test",
+        battery_roi=NormalizedRect(0.0, 0.0, 1.0, 1.0),
+        terminals=[
+            TerminalRecipe(
+                key="negative",
+                name="Negative Terminal",
+                role=TerminalRole.NEGATIVE,
+                search_roi=NormalizedRect(0.1, 0.1, 0.2, 0.2),
+                marking_roi=NormalizedRect(0.3, 0.3, 0.3, 0.3),
+                expected_marking=Marking.MINUS,
+                red_ring_required=True,
+                expected_finish=TerminalFinish.BRASS,
+            ),
+            TerminalRecipe(
+                key="positive",
+                name="Positive Terminal",
+                role=TerminalRole.POSITIVE,
+                search_roi=NormalizedRect(0.6, 0.6, 0.2, 0.2),
+                marking_roi=NormalizedRect(0.3, 0.3, 0.3, 0.3),
+                expected_marking=Marking.PLUS,
+                red_ring_required=False,
+                expected_finish=TerminalFinish.SILVER,
+            ),
+        ],
+    )
+
+
+def test_editing_a_recipe_keeps_the_gates_it_was_saved_with(qapp, controller) -> None:
+    """Opening a recipe for edit must not quietly relax what it inspects.
+
+    The polarity controls are connected to a handler that copies the whole card
+    into the draft. Prefilling them one at a time fired that handler while the
+    later controls still held their construction defaults, and it wrote those
+    defaults over the recipe's stored values. The operator saw the negative
+    terminal's finish blank and its red-ring requirement unchecked, and saving
+    from there produced a revision that no longer required the red ring at all
+    -- a part that should reject would pass, with nothing in the record to say
+    the requirement had been dropped.
+    """
+
+    saved = controller.repository.save_recipe(_graded_recipe(), username="test")
+    reloaded = controller.repository.get_recipe(saved.recipe_id)
+    assert reloaded is not None
+
+    dialog = RecipeWizardDialog(controller=controller, username="test", recipe=reloaded)
+    try:
+        polarity = dialog.pages[4]
+        polarity.prepare()
+
+        shown = {
+            key: (controls["finish"].currentData(), controls["ring"].isChecked())
+            for key, controls in polarity.controls.items()
+        }
+        assert shown["negative"] == (TerminalFinish.BRASS, True)
+        assert shown["positive"] == (TerminalFinish.SILVER, False)
+
+        # The draft is what a save would write, so it has to agree with the
+        # controls rather than with whatever they were built holding.
+        assert dialog.data.expected_finishes["negative"] == TerminalFinish.BRASS
+        assert dialog.data.expected_finishes["positive"] == TerminalFinish.SILVER
+        assert dialog.data.red_ring_required == {"negative": True, "positive": False}
+    finally:
+        dialog.reject()
+        qapp.processEvents()
