@@ -97,6 +97,74 @@ function Invoke-Checked {
     }
 }
 
+function Get-HoldingProcesses {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # Windows refuses to delete an executable image that a live process still
+    # has mapped, so the previous build left running is the usual culprit.
+    $Prefix = [System.IO.Path]::GetFullPath($Path).TrimEnd([char]92) + [char]92
+    $Holding = @()
+    foreach ($Process in Get-Process) {
+        $ProcessPath = ""
+        try {
+            $ProcessPath = $Process.Path
+        } catch {
+            continue
+        }
+        if ($ProcessPath -and $ProcessPath.StartsWith($Prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            $Holding += "$($Process.ProcessName) (PID $($Process.Id))"
+        }
+    }
+    return $Holding
+}
+
+function Remove-Tree {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    # Two different failures land here. A momentary hold by antivirus, the
+    # search indexer, or a backup agent clears on its own within a second or
+    # two, so retry rather than abandoning a build that is otherwise finished.
+    # A mapped image or a read-only attribute does not clear, so report what is
+    # actually holding the path instead of the bare access-denied error.
+    #
+    # Milliseconds, not seconds: Windows PowerShell 5.1 types -Seconds as an
+    # integer and would round a fractional delay away to no delay at all.
+    $Delays = @(250, 500, 1000, 2000, 4000)
+    $LastError = $null
+    for ($Attempt = 0; $Attempt -le $Delays.Count; $Attempt++) {
+        try {
+            Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReadOnly } |
+                ForEach-Object {
+                    $_.Attributes = [System.IO.FileAttributes](
+                        $_.Attributes -band (-bnot [int][System.IO.FileAttributes]::ReadOnly))
+                }
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+            return
+        } catch {
+            $LastError = $_
+            if ($Attempt -lt $Delays.Count) {
+                Start-Sleep -Milliseconds $Delays[$Attempt]
+            }
+        }
+    }
+
+    $Holding = @(Get-HoldingProcesses $Path)
+    if ($Holding.Count -gt 0) {
+        $Detail = "Still running from that directory: $($Holding -join ', '). Close it and run this script again."
+    } else {
+        $Detail = "Nothing is running from that directory, so an antivirus scan, an open Explorer window, or a backup agent is holding a file open. Close them, or exclude the build tree from real-time scanning, and run this script again."
+    }
+    throw "$Description could not be removed: $Path. $Detail Underlying error: $($LastError.Exception.Message)"
+}
+
 function Write-Step {
     param([Parameter(Mandatory = $true)][string]$Message)
     Write-Host ""
@@ -154,7 +222,7 @@ Write-Host "Interpreter: Python $PythonVersion x$PythonBits"
 
 if ($Clean -and (Test-Path $BuildRoot)) {
     Write-Step "Removing previous build tree"
-    Remove-Item -LiteralPath $BuildRoot -Recurse -Force
+    Remove-Tree -Path $BuildRoot -Description "The previous build tree"
 }
 New-Item -ItemType Directory -Force -Path $BuildRoot, $OutputDirectory | Out-Null
 
@@ -285,7 +353,7 @@ foreach ($TestDirectory in @(
         (Join-Path $AppDirectory "_internal\onnx\test"),
         (Join-Path $AppDirectory "_internal\onnxruntime\datasets"))) {
     if (Test-Path -LiteralPath $TestDirectory -PathType Container) {
-        Remove-Item -LiteralPath $TestDirectory -Recurse -Force
+        Remove-Tree -Path $TestDirectory -Description "The bundled ONNX test corpus"
     }
 }
 
@@ -367,7 +435,13 @@ Write-Step "Collecting the finished application"
 $TargetName = "Pole-Position-v$Version-win64"
 $TargetDirectory = Join-Path $OutputDirectory $TargetName
 if (Test-Path -LiteralPath $TargetDirectory) {
-    Remove-Item -LiteralPath $TargetDirectory -Recurse -Force
+    try {
+        Remove-Tree -Path $TargetDirectory -Description "The previous build output"
+    } catch {
+        # The freeze already succeeded, so say where it is. Copying it by hand
+        # is cheaper than repeating a PyInstaller run to recover from a lock.
+        throw "$($_.Exception.Message) The application built by this run is complete at $AppDirectory and can be copied there by hand once the lock is released."
+    }
 }
 Copy-Item -LiteralPath $AppDirectory -Destination $TargetDirectory -Recurse -Force
 
@@ -379,7 +453,7 @@ if ($Archive) {
     Write-Step "Creating the distribution archive (about $SizeGb GB to compress; this takes a while)"
     $ArchivePath = Join-Path $OutputDirectory "$TargetName.zip"
     if (Test-Path -LiteralPath $ArchivePath) {
-        Remove-Item -LiteralPath $ArchivePath -Force
+        Remove-Tree -Path $ArchivePath -Description "The previous distribution archive"
     }
     # ZipFile rather than Compress-Archive: this script runs under Windows
     # PowerShell 5.1 through the .cmd wrapper, where Compress-Archive cannot

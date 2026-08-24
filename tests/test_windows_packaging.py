@@ -350,3 +350,41 @@ def test_python_source_is_never_passed_inline_to_the_interpreter() -> None:
                     "PowerShell will strip those quotes and the interpreter will "
                     "see a syntax error"
                 )
+
+
+def test_every_deletion_in_the_local_build_retries_and_explains_itself() -> None:
+    """A stale build output is routinely locked, and the build is expensive.
+
+    Windows will not delete an executable image a live process has mapped, so a
+    previous build left running makes the collect step fail with a bare access
+    denied error after the freeze has already succeeded. Deletions therefore go
+    through Remove-Tree, which retries the momentary holds and names the process
+    behind a permanent one.
+    """
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert "function Remove-Tree {" in script
+    assert "function Get-HoldingProcesses {" in script
+
+    body = script.split("function Remove-Tree {", 1)[1]
+    outside = script.split("function Remove-Tree {", 1)[0] + body.split("\n}\n", 1)[1]
+    stray = [line.strip() for line in outside.splitlines() if "Remove-Item" in line]
+    assert not stray, f"deletions must go through Remove-Tree: {stray}"
+
+
+def test_the_local_build_sleeps_in_units_windows_powershell_understands() -> None:
+    """Windows PowerShell 5.1 types Start-Sleep -Seconds as an integer.
+
+    The .cmd wrapper runs the script under 5.1, where a fractional -Seconds
+    value rounds to zero and the retry loop degenerates into no waiting at all.
+    """
+
+    for script_path in sorted((ROOT / "packaging" / "windows").glob("*.ps1")):
+        script = script_path.read_text(encoding="utf-8")
+        for line in script.splitlines():
+            match = re.search(r"Start-Sleep\s+-Seconds\s+([\d.]+)", line)
+            if match is not None:
+                assert "." not in match.group(1), (
+                    f"{script_path.name}: fractional -Seconds rounds to zero under "
+                    "Windows PowerShell 5.1; use -Milliseconds"
+                )
