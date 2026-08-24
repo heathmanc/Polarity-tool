@@ -35,7 +35,7 @@ from battery_inspector.ui.pages.recipes import RecipesPage
 from battery_inspector.ui.pages.settings import SettingsPage
 from battery_inspector.ui.wizard import RecipeWizardDialog
 
-from conftest import drain
+from conftest import ROOT, drain
 
 PAGE_TYPES = [
     (MainWindow.OVERVIEW, OverviewPage),
@@ -362,6 +362,60 @@ def test_editing_a_recipe_keeps_the_gates_it_was_saved_with(qapp, controller) ->
         assert dialog.data.expected_finishes["negative"] == TerminalFinish.BRASS
         assert dialog.data.expected_finishes["positive"] == TerminalFinish.SILVER
         assert dialog.data.red_ring_required == {"negative": True, "positive": False}
+    finally:
+        dialog.reject()
+        qapp.processEvents()
+
+
+def test_a_recipe_survives_being_reopened_and_saved_again(qapp, controller) -> None:
+    """The whole operator loop: save with gates set, reopen, save the revision.
+
+    Reopening used to blank the negative terminal's finish and clear its ring,
+    and saving from there stopped with "Select SILVER or BRASS" -- for a recipe
+    that had been saved with BRASS. This walks the same path end to end and
+    reads back what is actually on disk at each point, because the values the
+    editor showed and the values the record held were not the same thing.
+    """
+
+    from battery_inspector.evidence import reference_capture_from_file
+
+    assets = ROOT / "battery_inspector" / "assets"
+    recipe = _graded_recipe()
+    recipe.reference_image = reference_capture_from_file(
+        assets / "demo_reference_good.png",
+        source="TEST",
+        camera_backend="bundled-asset",
+        camera_description="UI smoke fixture",
+    )
+    seed = controller.repository.save_recipe(recipe, username="test")
+
+    def stored(recipe_id: str) -> dict[str, tuple[str, bool]]:
+        record = controller.repository.get_recipe(recipe_id)
+        assert record is not None
+        return {
+            terminal.key: (str(terminal.expected_finish), terminal.red_ring_required)
+            for terminal in record.terminals
+        }
+
+    expected = {"negative": ("brass", True), "positive": ("silver", False)}
+    assert stored(seed.recipe_id) == expected
+
+    reloaded = controller.repository.get_recipe(seed.recipe_id)
+    dialog = RecipeWizardDialog(controller=controller, username="test", recipe=reloaded)
+    try:
+        polarity = dialog.pages[4]
+        polarity.prepare()
+        assert {
+            key: (str(controls["finish"].currentData()), controls["ring"].isChecked())
+            for key, controls in polarity.controls.items()
+        } == expected
+
+        # The operator changes nothing on this step and saves the revision.
+        dialog.data.accept_existing_reference()
+        polarity.commit()
+        revision = dialog.data.build_recipe("test", base_recipe=reloaded)
+        saved = controller.save_recipe(revision, activate=False)
+        assert stored(saved.recipe_id) == expected
     finally:
         dialog.reject()
         qapp.processEvents()
