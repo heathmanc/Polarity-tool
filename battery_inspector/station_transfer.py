@@ -166,7 +166,18 @@ def create_station_backup(
 
     sources: list[tuple[str, Path]] = [("config.json", config_path)]
     portable_ml: dict[str, dict[str, str]] = {}
-    with tempfile.TemporaryDirectory(prefix="pole_position_backup_") as temporary_directory:
+    # ignore_cleanup_errors: this directory holds one disposable SQLite
+    # snapshot that has already been written into the archive by the time
+    # cleanup runs. On Windows a file can be briefly unremovable for reasons
+    # entirely outside this application -- an antivirus or search indexer
+    # scanning a freshly written .db -- and losing scratch space must never
+    # fail a backup, nor abort the restore that takes a rollback backup
+    # first. A leaked handle of our own is a separate concern, covered by
+    # the connection-closing tests rather than by letting cleanup throw.
+    with tempfile.TemporaryDirectory(
+        prefix="pole_position_backup_",
+        ignore_cleanup_errors=True,
+    ) as temporary_directory:
         temporary_root = Path(temporary_directory)
         database = data_directory / "battery_inspector.db"
         snapshot = temporary_root / "battery_inspector.db"

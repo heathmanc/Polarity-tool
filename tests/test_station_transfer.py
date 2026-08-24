@@ -8,6 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from battery_inspector import station_transfer
+
+from conftest import ROOT
 from battery_inspector.config import AppConfig, MlConfig
 from battery_inspector.station_transfer import (
     BACKUP_MANIFEST_NAME,
@@ -279,3 +282,122 @@ def test_restore_leaves_no_open_database_handles(tmp_path: Path, tracked_connect
 
     assert tracked_connections
     assert all(_connection_is_closed(item) for item in tracked_connections)
+
+
+# --- scratch-space cleanup must never fail the operation --------------------
+
+
+def test_backup_survives_a_temp_directory_windows_refuses_to_delete(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A locked scratch file must not fail the backup, or the restore above it.
+
+    Windows refuses to delete a file another process holds open, and an
+    antivirus or search indexer scanning a freshly written .db is enough to
+    cause that for a moment. Linux cannot reproduce it -- an open file unlinks
+    happily -- so this emulates TemporaryDirectory's documented contract:
+    cleanup raises unless ignore_cleanup_errors was requested.
+
+    Observed in the field as "Workstation restore not applied ... [WinError 32]"
+    because a restore takes a rollback backup before swapping any data.
+    """
+
+    import tempfile as tempfile_module
+
+    real_temporary_directory = tempfile_module.TemporaryDirectory
+
+    class HostileTemporaryDirectory(real_temporary_directory):
+        def cleanup(self) -> None:
+            if not self._ignore_cleanup_errors:
+                raise PermissionError(
+                    32,
+                    "The process cannot access the file because it is being used "
+                    "by another process",
+                )
+            # Requested tolerance: leave the scratch for the OS temp cleaner.
+
+    monkeypatch.setattr(
+        station_transfer.tempfile, "TemporaryDirectory", HostileTemporaryDirectory
+    )
+
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _source_station(root)
+    backup = tmp_path / "backup.zip"
+
+    created = create_station_backup(root, config_path, data, backup)
+
+    assert backup.is_file()
+    assert created["file_count"] >= 6
+    with zipfile.ZipFile(backup) as archive:
+        assert "runtime/battery_inspector.db" in set(archive.namelist())
+        assert archive.testzip() is None
+
+
+# --- backup content analysis ------------------------------------------------
+
+
+def test_backup_analyzer_separates_essential_from_regenerable(tmp_path: Path) -> None:
+    """scripts/analyze_station_backup.py must classify what it finds.
+
+    A workstation backup sweeps the whole data directory, so it carries retained
+    failure evidence, prepared ML datasets, training checkpoints, and the
+    pre-v0.17 migration archive alongside the configuration, recipes, and models
+    a replacement station actually needs. The report exists so an operator can
+    see that split on their own backup.
+    """
+
+    import runpy
+    import sys
+
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _source_station(root)
+
+    # Content a replacement station regenerates rather than requires.
+    for relative in (
+        "inspections/20260101/CYCLE-1/full.jpg",
+        "ml_training/datasets/current/train/plus/a.png",
+        "ml_training/runs/run_0/training_runs/weights/best.pt",
+        "archive_pre_v017_20260101T000000Z/inspections/old.jpg",
+    ):
+        target = data / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"x" * 4096)
+    sample = data / "ml_training" / "samples" / "plus" / "s.png"
+    sample.parent.mkdir(parents=True, exist_ok=True)
+    sample.write_bytes(b"y" * 4096)
+
+    backup = tmp_path / "backup.zip"
+    create_station_backup(root, config_path, data, backup)
+
+    argv = sys.argv
+    sys.argv = ["analyze_station_backup.py", str(backup), "--json"]
+    try:
+        import io
+        from contextlib import redirect_stdout
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            try:
+                runpy.run_path(
+                    str(ROOT / "scripts" / "analyze_station_backup.py"),
+                    run_name="__main__",
+                )
+            except SystemExit as exit_code:
+                assert exit_code.code == 0
+        report = json.loads(buffer.getvalue())
+    finally:
+        sys.argv = argv
+
+    categories = report["categories"]
+    assert categories["Failure evidence"]["essential"] is False
+    assert categories["ML prepared dataset"]["essential"] is False
+    assert categories["ML training runs"]["essential"] is False
+    assert categories["Pre-v0.17 archive"]["essential"] is False
+    assert categories["ML training samples"]["essential"] is True
+    assert categories["Recipe database"]["essential"] is True
+    # Nothing may fall through unclassified into a misleading bucket.
+    assert "Other" not in categories
+    assert report["regenerable_bytes"] > 0
+    assert report["essential_bytes"] > 0
