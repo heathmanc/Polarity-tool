@@ -67,6 +67,28 @@ in the meantime.
 The staged copy is discarded on failure, so import the backup file again rather
 than expecting the previous attempt to resume.
 
+### Recovering a station stuck on an earlier failure
+
+Builds before this behaviour existed left the flag in place when a restore
+failed. Such a station re-attempts the same failing restore on every launch and
+refuses to import anything else, because a pending import is already recorded.
+
+**Reinstalling the application does not clear it.** Station data lives apart
+from the program files -- under `C:\ProgramData\Pole Position` for an installed
+station -- and the installer preserves that data deliberately. The flag is
+station data.
+
+```
+python scripts\clear_pending_restore.py            # report what it finds
+python scripts\clear_pending_restore.py --clear    # clear the flag
+```
+
+It locates the station root the same way the application does, checks
+`%PROGRAMDATA%\Pole Position` for an installed station, reports why the last
+restore failed, and removes only the flag and the staged copy it points at.
+Recipes, models, evidence, and configuration are untouched. To do it by hand,
+delete `.pole_position_restore_pending.json` from the station root.
+
 ## Rollback archives
 
 Each successful restore first writes a full copy of the station as it was to

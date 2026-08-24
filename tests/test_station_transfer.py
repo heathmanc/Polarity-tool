@@ -709,3 +709,46 @@ def test_a_failed_restore_keeps_its_rollback_archive(tmp_path: Path, monkeypatch
 
     written = list((target_root / "restore_rollback").glob("Pole_Position_PreRestore_*.zip"))
     assert len(written) == 1
+
+
+def test_a_rollback_backup_failure_does_not_leave_the_station_retrying(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The exact field failure: WinError 32 while taking the rollback backup.
+
+    A restore takes a rollback backup before touching any data, so this is the
+    first thing that can fail and the one an operator actually saw. It must
+    clear the pending flag like any other failure -- otherwise the station
+    re-attempts the same restore on every launch and refuses new imports.
+    """
+
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+
+    def refuse(*args, **kwargs):
+        raise PermissionError(
+            32,
+            "The process cannot access the file because it is being used by another process",
+        )
+
+    monkeypatch.setattr(station_transfer, "create_station_backup", refuse)
+
+    with pytest.raises(PermissionError):
+        apply_pending_restore(target_root, target_config)
+
+    assert not (target_root / PENDING_RESTORE_NAME).exists(), (
+        "the station would retry this restore on every launch"
+    )
+
+    # And the operator can import again rather than being told one is pending.
+    monkeypatch.undo()
+    assert stage_station_restore(target_root, backup)["restart_required"] is True
