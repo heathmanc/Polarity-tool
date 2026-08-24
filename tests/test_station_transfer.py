@@ -337,46 +337,62 @@ def test_backup_survives_a_temp_directory_windows_refuses_to_delete(
 # --- backup content analysis ------------------------------------------------
 
 
-def test_backup_analyzer_separates_essential_from_regenerable(tmp_path: Path) -> None:
-    """scripts/analyze_station_backup.py must classify what it finds.
+def test_backup_analyzer_classifies_every_station_path() -> None:
+    """The report must name every category, including ones only old backups have.
 
-    A workstation backup sweeps the whole data directory, so it carries retained
-    failure evidence, prepared ML datasets, training checkpoints, and the
-    pre-v0.17 migration archive alongside the configuration, recipes, and models
-    a replacement station actually needs. The report exists so an operator can
-    see that split on their own backup.
+    New backups no longer carry prepared datasets or training runs, but the
+    report exists to explain an archive that already does -- so classification
+    is tested directly rather than through a freshly written backup.
     """
 
-    import runpy
     import sys
 
-    root = tmp_path / "station"
-    root.mkdir()
-    config_path, data = _source_station(root)
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        from analyze_station_backup import classify
+    finally:
+        sys.path.pop(0)
 
-    # Content a replacement station regenerates rather than requires.
-    for relative in (
-        "inspections/20260101/CYCLE-1/full.jpg",
-        "ml_training/datasets/current/train/plus/a.png",
-        "ml_training/runs/run_0/training_runs/weights/best.pt",
-        "archive_pre_v017_20260101T000000Z/inspections/old.jpg",
-    ):
-        target = data / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(b"x" * 4096)
-    sample = data / "ml_training" / "samples" / "plus" / "s.png"
-    sample.parent.mkdir(parents=True, exist_ok=True)
-    sample.write_bytes(b"y" * 4096)
+    expectations = {
+        "config.json": ("Station configuration", True),
+        "pole_position_backup.json": ("Backup manifest", True),
+        "runtime/battery_inspector.db": ("Recipe database", True),
+        "runtime/recipes/r1/revision_0001/reference.png": ("Recipe references", True),
+        "runtime/validation/run_1/full.jpg": ("Validation evidence", True),
+        "runtime/models/polarity/v1/polarity_classifier.onnx": ("Installed models", True),
+        "runtime/ml_training/samples/plus/a.png": ("ML training samples", True),
+        "runtime/ml_training/samples.jsonl": ("ML training index", True),
+        "runtime/ml_training/datasets/current/train/plus/a.png": ("ML prepared dataset", False),
+        "runtime/ml_training/runs/run_0/weights/best.pt": ("ML training runs", False),
+        "runtime/inspections/20260101/CYCLE-1/full.jpg": ("Failure evidence", False),
+        "runtime/archive_pre_v017_20260101T000000Z/old.jpg": ("Pre-v0.17 archive", False),
+    }
+    for name, (label, essential) in expectations.items():
+        actual_label, actual_essential, _note = classify(name)
+        assert actual_label == label, (name, actual_label)
+        assert actual_essential is essential, (name, actual_essential)
 
-    backup = tmp_path / "backup.zip"
-    create_station_backup(root, config_path, data, backup)
+
+def test_backup_analyzer_reports_the_split_for_an_existing_backup(tmp_path: Path) -> None:
+    """Run the report against an archive shaped like one written before v0.23.5."""
+
+    import io
+    import runpy
+    import sys
+    from contextlib import redirect_stdout
+
+    legacy = tmp_path / "legacy-backup.zip"
+    with zipfile.ZipFile(legacy, "w") as archive:
+        archive.writestr("config.json", "{}")
+        archive.writestr("runtime/battery_inspector.db", b"db")
+        archive.writestr("runtime/ml_training/samples/plus/a.png", b"s" * 1000)
+        archive.writestr("runtime/ml_training/runs/run_0/weights/best.pt", b"w" * 8000)
+        archive.writestr("runtime/inspections/20260101/CYCLE-1/full.jpg", b"e" * 4000)
+        archive.writestr(BACKUP_MANIFEST_NAME, json.dumps({"schema_version": 1}))
 
     argv = sys.argv
-    sys.argv = ["analyze_station_backup.py", str(backup), "--json"]
+    sys.argv = ["analyze_station_backup.py", str(legacy), "--json"]
     try:
-        import io
-        from contextlib import redirect_stdout
-
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             try:
@@ -390,14 +406,295 @@ def test_backup_analyzer_separates_essential_from_regenerable(tmp_path: Path) ->
     finally:
         sys.argv = argv
 
-    categories = report["categories"]
-    assert categories["Failure evidence"]["essential"] is False
-    assert categories["ML prepared dataset"]["essential"] is False
-    assert categories["ML training runs"]["essential"] is False
-    assert categories["Pre-v0.17 archive"]["essential"] is False
-    assert categories["ML training samples"]["essential"] is True
-    assert categories["Recipe database"]["essential"] is True
-    # Nothing may fall through unclassified into a misleading bucket.
-    assert "Other" not in categories
-    assert report["regenerable_bytes"] > 0
+    assert report["regenerable_bytes"] == 12000
     assert report["essential_bytes"] > 0
+    assert "Other" not in report["categories"]
+
+
+# --- derived training artifacts stay out of backups -------------------------
+
+
+def _station_with_training_artifacts(root: Path) -> tuple[Path, Path]:
+    config_path, data = _source_station(root)
+    written = {
+        # Kept: the taught crops cannot be recreated without recapturing them.
+        "ml_training/samples/plus/plus_a.png": b"sample",
+        "ml_training/samples.jsonl": b'{"image_path": "x"}\n',
+        # Dropped: train/val/test copies of the samples above.
+        "ml_training/datasets/current/train/plus/plus_a.png": b"copy",
+        "ml_training/datasets/current/val/plus/plus_a.png": b"copy",
+        # Dropped: checkpoints and plots from past training.
+        "ml_training/runs/run_0/training_runs/weights/best.pt": b"weights" * 512,
+        "ml_training/runs/run_0/polarity_classifier.onnx": b"candidate",
+        # Kept: the installed package a station actually inspects with.
+        "models/polarity/v1/polarity_classifier.onnx": b"installed",
+    }
+    for relative, payload in written.items():
+        target = data / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+    return config_path, data
+
+
+def test_backup_excludes_prepared_datasets_and_training_runs(tmp_path: Path) -> None:
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _station_with_training_artifacts(root)
+    backup = tmp_path / "backup.zip"
+
+    create_station_backup(root, config_path, data, backup)
+
+    with zipfile.ZipFile(backup) as archive:
+        names = set(archive.namelist())
+
+    assert not [name for name in names if "/ml_training/datasets/" in name]
+    assert not [name for name in names if "/ml_training/runs/" in name]
+
+
+def test_backup_still_carries_what_a_replacement_station_needs(tmp_path: Path) -> None:
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _station_with_training_artifacts(root)
+    backup = tmp_path / "backup.zip"
+
+    create_station_backup(root, config_path, data, backup)
+
+    with zipfile.ZipFile(backup) as archive:
+        names = set(archive.namelist())
+
+    assert "runtime/ml_training/samples/plus/plus_a.png" in names
+    assert "runtime/ml_training/samples.jsonl" in names
+    assert "runtime/models/polarity/v1/polarity_classifier.onnx" in names
+    assert "runtime/battery_inspector.db" in names
+    assert "config.json" in names
+
+
+def test_backup_manifest_states_what_it_dropped(tmp_path: Path) -> None:
+    """A backup has to describe itself honestly; restore trusts the manifest."""
+
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _station_with_training_artifacts(root)
+    backup = tmp_path / "backup.zip"
+
+    create_station_backup(root, config_path, data, backup)
+
+    with zipfile.ZipFile(backup) as archive:
+        manifest = json.loads(archive.read(BACKUP_MANIFEST_NAME).decode("utf-8"))
+
+    assert manifest["contents"]["ml_training_samples"] is True
+    assert manifest["contents"]["ml_prepared_datasets"] is False
+    assert manifest["contents"]["ml_training_runs"] is False
+    assert sorted(manifest["excluded_data_prefixes"]) == [
+        "ml_training/datasets/",
+        "ml_training/runs/",
+    ]
+    # The schema is unchanged, so backups written before this still restore.
+    assert manifest["schema_version"] == 1
+
+
+def test_a_restore_of_a_lean_backup_round_trips(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _station_with_training_artifacts(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+    apply_pending_restore(target_root, target_config)
+
+    restored = target_root / "runtime"
+    assert (restored / "ml_training" / "samples" / "plus" / "plus_a.png").is_file()
+    assert (restored / "models" / "polarity" / "v1" / "polarity_classifier.onnx").is_file()
+    assert not (restored / "ml_training" / "runs").exists()
+    assert not (restored / "ml_training" / "datasets").exists()
+
+
+# --- a failed restore must not trap the station -----------------------------
+
+
+def test_a_failed_restore_clears_the_pending_marker(tmp_path: Path, monkeypatch) -> None:
+    """Otherwise every restart retries the same failure and no import is allowed.
+
+    stage_station_restore refuses while a marker exists, and the marker used to
+    survive a failure, so a station that failed one restore could never import
+    another -- and re-attempted the failing restore on every launch, writing a
+    full rollback archive each time.
+    """
+
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+    assert (target_root / PENDING_RESTORE_NAME).is_file()
+
+    def explode(*args, **kwargs):
+        raise StationTransferError("restore failed for the test")
+
+    monkeypatch.setattr(station_transfer, "_rebase_database", explode)
+
+    with pytest.raises(StationTransferError, match="restore failed for the test"):
+        apply_pending_restore(target_root, target_config)
+
+    assert not (target_root / PENDING_RESTORE_NAME).exists()
+
+
+def test_a_failed_restore_allows_importing_again(tmp_path: Path, monkeypatch) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+
+    monkeypatch.setattr(
+        station_transfer,
+        "_rebase_database",
+        lambda *a, **k: (_ for _ in ()).throw(StationTransferError("boom")),
+    )
+    with pytest.raises(StationTransferError):
+        apply_pending_restore(target_root, target_config)
+
+    # The operator can now stage the same backup again rather than being stuck.
+    monkeypatch.undo()
+    staged = stage_station_restore(target_root, backup)
+
+    assert staged["restart_required"] is True
+    assert apply_pending_restore(target_root, target_config)["status"] == "restored"
+
+
+def test_a_failed_restore_records_why(tmp_path: Path, monkeypatch) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+
+    monkeypatch.setattr(
+        station_transfer,
+        "_rebase_database",
+        lambda *a, **k: (_ for _ in ()).throw(StationTransferError("disk went away")),
+    )
+    with pytest.raises(StationTransferError):
+        apply_pending_restore(target_root, target_config)
+
+    recorded = json.loads(
+        (target_root / ".pole_position_restore_result.json").read_text(encoding="utf-8")
+    )
+    assert recorded["status"] == "failed"
+    assert "disk went away" in recorded["error"]
+
+
+def test_a_failed_restore_leaves_the_station_data_untouched(tmp_path: Path, monkeypatch) -> None:
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    target_data = target_root / "runtime"
+    target_data.mkdir()
+    sentinel = target_data / "existing.txt"
+    sentinel.write_text("original station data", encoding="utf-8")
+    stage_station_restore(target_root, backup)
+
+    monkeypatch.setattr(
+        station_transfer,
+        "_rebase_database",
+        lambda *a, **k: (_ for _ in ()).throw(StationTransferError("boom")),
+    )
+    with pytest.raises(StationTransferError):
+        apply_pending_restore(target_root, target_config)
+
+    assert sentinel.read_text(encoding="utf-8") == "original station data"
+
+
+# --- rollback archives are bounded ------------------------------------------
+
+
+def test_rollback_archives_are_pruned_to_the_retention_count(tmp_path: Path) -> None:
+    """Each rollback is a full station copy, so they cannot accumulate forever."""
+
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+
+    rollbacks = target_root / "restore_rollback"
+    rollbacks.mkdir()
+    for index in range(6):
+        (rollbacks / f"Pole_Position_PreRestore_2026010{index}_000000_abcdef12.zip").write_bytes(
+            b"old rollback"
+        )
+    # Anything the operator parked here is not ours to remove.
+    keepsake = rollbacks / "operator-notes.zip"
+    keepsake.write_bytes(b"not ours")
+
+    stage_station_restore(target_root, backup)
+    apply_pending_restore(target_root, target_config)
+
+    remaining = sorted(item.name for item in rollbacks.glob("Pole_Position_PreRestore_*.zip"))
+
+    assert len(remaining) == station_transfer.ROLLBACK_RETENTION_COUNT
+    # The newest survive, including the one this restore just wrote.
+    assert any(name.startswith("Pole_Position_PreRestore_20") for name in remaining)
+    assert keepsake.is_file()
+
+
+def test_a_failed_restore_keeps_its_rollback_archive(tmp_path: Path, monkeypatch) -> None:
+    """Pruning happens only after success; a failure may still need to undo."""
+
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+
+    monkeypatch.setattr(
+        station_transfer,
+        "_rebase_database",
+        lambda *a, **k: (_ for _ in ()).throw(StationTransferError("boom")),
+    )
+    with pytest.raises(StationTransferError):
+        apply_pending_restore(target_root, target_config)
+
+    written = list((target_root / "restore_rollback").glob("Pole_Position_PreRestore_*.zip"))
+    assert len(written) == 1

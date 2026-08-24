@@ -19,11 +19,35 @@ from battery_inspector.config import AppConfig
 
 
 BACKUP_SCHEMA_VERSION = 1
+# Derived ML training artifacts, excluded from workstation backups.
+#
+# Both are rebuilt from data the backup does carry. The prepared dataset is
+# train/val/test copies of ml_training/samples, which is backed up, so including
+# it stores those images twice. Training runs hold checkpoints and plots from
+# past training; the model a station actually inspects with is the installed
+# package under models/, which is backed up separately. Runs accumulate without
+# any retention sweep, so on a station that has trained a few times they can
+# dominate the archive.
+#
+# The one thing this drops is a candidate that was trained but never installed,
+# since that lives only in a run directory. Install a candidate before relying
+# on a backup to carry it.
+EXCLUDED_DATA_PREFIXES = (
+    "ml_training/datasets/",
+    "ml_training/runs/",
+)
 BACKUP_MANIFEST_NAME = "pole_position_backup.json"
 PENDING_RESTORE_NAME = ".pole_position_restore_pending.json"
 RESTORE_RESULT_NAME = ".pole_position_restore_result.json"
 RESTORE_STAGING_DIRECTORY = ".pole_position_restore_staging"
 ROLLBACK_DIRECTORY = "restore_rollback"
+# Rollback archives kept after a successful restore. Each is a full copy of the
+# station as it was, so on a large station they are the biggest thing the
+# application writes, and nothing else prunes them. Keeping the most recent few
+# preserves the ability to undo a restore without letting a station accumulate a
+# complete copy of itself for every restore it has ever done.
+ROLLBACK_RETENTION_COUNT = 3
+ROLLBACK_PREFIX = "Pole_Position_PreRestore_"
 MAX_ARCHIVE_FILES = 200_000
 MAX_ARCHIVE_BYTES = 25 * 1024**3
 MAX_MANIFEST_BYTES = 4 * 1024**2
@@ -196,6 +220,8 @@ def create_station_backup(
             relative = source.relative_to(data_directory).as_posix()
             if source == database:
                 continue
+            if relative.startswith(EXCLUDED_DATA_PREFIXES):
+                continue
             if relative in {
                 "battery_inspector.db-wal",
                 "battery_inspector.db-shm",
@@ -255,10 +281,14 @@ def create_station_backup(
                         "recipe_database_and_assets": True,
                         "validation_data": True,
                         "ml_training_and_models": True,
+                        "ml_training_samples": True,
+                        "ml_prepared_datasets": False,
+                        "ml_training_runs": False,
                         "audit_history": True,
                         "retained_failure_evidence": True,
                         "production_pass_history": False,
                     },
+                    "excluded_data_prefixes": list(EXCLUDED_DATA_PREFIXES),
                     "portable_ml": portable_ml,
                     "files": records,
                 }
@@ -614,7 +644,15 @@ def _prepare_restored_config(
 
 
 def apply_pending_restore(project_root: Path, config_path: Path) -> dict[str, Any]:
-    """Apply a previously validated restore before services or SQLite are opened."""
+    """Apply a previously validated restore before services or SQLite are opened.
+
+    A failed attempt clears the pending marker. Without that the station is
+    trapped: the marker survives, every restart re-attempts the same failing
+    restore -- writing another full rollback archive each time -- and
+    stage_station_restore refuses to import anything else while it exists. The
+    attempt leaves the station unchanged either way, so the operator gets a
+    bootable station and can import again.
+    """
 
     project_root = project_root.resolve()
     config_path = config_path.resolve()
@@ -625,11 +663,82 @@ def apply_pending_restore(project_root: Path, config_path: Path) -> dict[str, An
         marker_payload = json.loads(marker.read_text(encoding="utf-8"))
         staging_directory = Path(str(marker_payload["staging_directory"])).resolve()
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        marker.unlink(missing_ok=True)
         raise StationTransferError(f"Pending restore marker is invalid: {exc}") from exc
     staging_root = (project_root / RESTORE_STAGING_DIRECTORY).resolve()
     if not _is_relative_to(staging_directory, staging_root) or not staging_directory.is_dir():
+        marker.unlink(missing_ok=True)
         raise StationTransferError("Pending restore staging directory is outside the controlled restore area")
 
+    try:
+        return _apply_staged_restore(
+            project_root,
+            config_path,
+            marker,
+            marker_payload,
+            staging_directory,
+        )
+    except Exception as exc:
+        marker.unlink(missing_ok=True)
+        shutil.rmtree(staging_directory, ignore_errors=True)
+        _write_restore_result(
+            project_root,
+            {
+                "status": "failed",
+                "failed_at_utc": _utc_now(),
+                "source_backup": str(marker_payload.get("source_backup", "")),
+                "error": str(exc),
+            },
+        )
+        raise
+
+
+def _prune_rollback_archives(rollback_directory: Path) -> list[str]:
+    """Keep only the newest ROLLBACK_RETENTION_COUNT rollback archives.
+
+    Only files this application named are considered, so anything an operator
+    parked in the directory is left alone.
+    """
+
+    try:
+        archives = sorted(
+            (
+                item
+                for item in rollback_directory.glob(f"{ROLLBACK_PREFIX}*.zip")
+                if item.is_file()
+            ),
+            key=lambda item: item.name,
+            reverse=True,
+        )
+    except OSError:
+        return []
+    removed: list[str] = []
+    for stale in archives[ROLLBACK_RETENTION_COUNT:]:
+        try:
+            stale.unlink()
+        except OSError:
+            continue
+        removed.append(stale.name)
+    return removed
+
+
+def _write_restore_result(project_root: Path, result: dict[str, Any]) -> None:
+    try:
+        (project_root / RESTORE_RESULT_NAME).write_text(
+            json.dumps(result, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:  # noqa: S110 - the outcome is already being reported to the operator
+        pass
+
+
+def _apply_staged_restore(
+    project_root: Path,
+    config_path: Path,
+    marker: Path,
+    marker_payload: dict[str, Any],
+    staging_directory: Path,
+) -> dict[str, Any]:
     manifest_path = staging_directory / BACKUP_MANIFEST_NAME
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -693,6 +802,7 @@ def apply_pending_restore(project_root: Path, config_path: Path) -> dict[str, An
         raise
     else:
         shutil.rmtree(previous_data, ignore_errors=True)
+        _prune_rollback_archives(rollback_directory)
         marker.unlink(missing_ok=True)
         shutil.rmtree(staging_directory, ignore_errors=True)
         result = {
@@ -705,8 +815,5 @@ def apply_pending_restore(project_root: Path, config_path: Path) -> dict[str, An
             "rollback_backup": str(rollback_zip),
             "data_directory": str(target_data),
         }
-        (project_root / RESTORE_RESULT_NAME).write_text(
-            json.dumps(result, indent=2),
-            encoding="utf-8",
-        )
+        _write_restore_result(project_root, result)
         return result

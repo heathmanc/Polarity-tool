@@ -11,17 +11,60 @@ The result is one portable ZIP. Do not edit files inside the ZIP.
 - `config.json` station settings.
 - Recipe database, recipe revisions, and audit history.
 - Immutable recipe reference images and validation templates.
-- ML training samples, datasets/runs that remain in the runtime, and installed
-  station models.
+- ML training samples and the installed station models.
 - Retained non-PASS inspection evidence.
 - A manifest containing the application version, archive schema, original path
-  roots, file sizes, and SHA-256 for every included file.
+  roots, file sizes, and SHA-256 for every included file, plus the list of
+  excluded path prefixes.
+
+## What the ZIP deliberately omits
+
+Two derived ML directories are excluded, because both are rebuilt from data the
+backup does carry and together they can dominate the archive:
+
+| Excluded | Rebuilt from |
+| --- | --- |
+| `ml_training/datasets/` | The prepared train/val/test split is copies of `ml_training/samples/`, which is included. Re-prepare it in the training wizard. |
+| `ml_training/runs/` | Checkpoints and plots from past training. The model a station inspects with is the installed package under `models/`, which is included. |
+
+The one thing this drops is a candidate that was trained but never installed,
+because that exists only in a run directory. **Install a candidate before
+relying on a backup to carry it.**
+
+Excluding them from the backup does not reclaim station disk. `ml_training/runs/`
+has no retention sweep, so it grows with every training run; delete run
+directories on the station once their candidate is installed or superseded.
+
+To see the breakdown of an existing backup, including one written before this
+exclusion existed:
+
+```
+python scripts/analyze_station_backup.py "C:\path\to\backup.zip"
+```
 
 Production PASS images and PASS history are not included because Pole Position
 does not write them to disk. The Python environment, Basler pylon runtime,
 camera driver, and pycomm3 installation are software prerequisites and are not
 station data; install the approved Pole Position package on the destination PC
 before restoring.
+
+## If an import fails
+
+A failed restore leaves the station exactly as it was, clears the pending-import
+flag, and records what happened in `.pole_position_restore_result.json` beside
+`config.json`. Correct the problem and import again; the station starts normally
+in the meantime.
+
+The staged copy is discarded on failure, so import the backup file again rather
+than expecting the previous attempt to resume.
+
+## Rollback archives
+
+Each successful restore first writes a full copy of the station as it was to
+`restore_rollback\`, so a restore can be undone. Those are complete station
+copies, and only the three most recent are kept; older ones are removed after a
+restore succeeds. Files you place in that directory yourself are never removed.
+A failed restore keeps its rollback archive.
 
 ## Export
 
