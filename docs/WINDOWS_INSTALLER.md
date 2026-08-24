@@ -206,6 +206,32 @@ Pole-Position-v0.23.4-requirements-lock.txt
 The intermediate frozen directory and dependency manifest remain under
 `build\windows` for troubleshooting.
 
+### A build that looks hung at "Preprocessing"
+
+Inno Setup prints `Preprocessing` and then says nothing at all until the
+installer is written, so the last several gigabytes of compression happen in
+silence. That silence is normal. A genuine stall is not, and the two are told
+apart by CPU: compression pins a core, so **zero CPU means blocked, not busy**.
+
+The usual cause of a blocked build is the console itself. Clicking anywhere in
+a Windows console window selects text, and a console in selection mode stops
+the process writing to it until the selection is dismissed. The build resumes
+the instant you press <kbd>Esc</kbd> in the window. This affects Windows
+Terminal as well as the legacy console.
+
+To stop it happening at all, turn off QuickEdit for new console sessions: open
+any console window, right-click its **title bar**, choose **Defaults** ->
+**Options**, and clear **QuickEdit Mode**. (Choosing **Properties** instead
+changes only the open window.) Equivalently, set `HKEY_CURRENT_USER\Console`
+value `QuickEdit` to `0`.
+
+If the console is not the cause, check in Task Manager whether `ISCC.exe` is
+still running and whether its I/O read bytes are climbing -- it has to read the
+whole frozen directory before compressing -- and whether Windows Defender
+(`MsMpEng.exe`) is consuming the CPU instead. Excluding the source tree from
+real-time scanning helps both this step and the file locks that can otherwise
+fail the collect step.
+
 ## Installed layout
 
 Read-only application files:
