@@ -388,3 +388,49 @@ def test_the_local_build_sleeps_in_units_windows_powershell_understands() -> Non
                     f"{script_path.name}: fractional -Seconds rounds to zero under "
                     "Windows PowerShell 5.1; use -Milliseconds"
                 )
+
+
+def test_a_requested_cuda_torch_survives_the_rest_of_the_install() -> None:
+    """Installing the CUDA wheel first does not, on its own, keep it.
+
+    The requirements name torch directly, and pip takes a directly named
+    requirement to the newest version its index offers whenever --upgrade is
+    passed -- the installed version already satisfying the range does not stop
+    it. PyPI's newest Windows wheel is CPU-only and satisfies torch>=2.2, so a
+    v0.23.4 build resolved cu128 first and then silently replaced it, shipping a
+    CPU-only bundle to a workstation with a 5090 in it.
+    """
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+
+    assert "--constraint" in script, "the resolved torch versions must be pinned"
+    assert "torch-constraints.txt" in script
+
+    installs = [
+        line
+        for line in script.splitlines()
+        if "pip" in line and '"install"' in line and "requirements" in line
+    ]
+    assert installs, "no requirements install found"
+    for line in installs:
+        assert "$PinnedTorchArguments" in line, (
+            f"this install can replace the CUDA wheel: {line.strip()}"
+        )
+
+
+def test_the_local_build_refuses_to_ship_a_cpu_bundle_that_asked_for_cuda() -> None:
+    """A silently CPU-only bundle on a GPU station is the failure to prevent.
+
+    The check also has to separate the two questions it used to conflate: what
+    kind of wheel was bundled, which is a property of the build, and whether a
+    GPU is visible here, which is a property of the bench.
+    """
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+
+    assert 'if ($TorchInfo.cuda_version) {' in script, (
+        "the CUDA build must be detected by torch.version.cuda, not by whether "
+        "this machine happens to have a driver"
+    )
+    assert "elseif ($TorchIndexUrl)" in script
+    assert "but the installed build is CPU-only" in script

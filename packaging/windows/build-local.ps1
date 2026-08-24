@@ -243,12 +243,36 @@ if ($RequirementsLock) {
     }
     Invoke-Checked $BuildPython $LockedInstall "Locked dependency installation"
 } else {
+    $PinnedTorchArguments = @()
     if ($TorchIndexUrl) {
-        # The CUDA build must land first so the range constraints below keep it.
         Invoke-Checked $BuildPython @("-m", "pip", "install", "--upgrade", "torch", "torchvision", "--index-url", $TorchIndexUrl) "PyTorch installation"
+
+        # Installing the CUDA wheel first is not enough to keep it. The
+        # requirements name torch directly, and pip always takes a directly
+        # named requirement to the newest version its index offers when
+        # --upgrade is passed -- the range being already satisfied does not
+        # stop it. PyPI's newest Windows wheel is CPU-only and satisfies
+        # torch>=2.2, so the very next install quietly uninstalled the CUDA
+        # build and the bundle shipped without GPU support.
+        #
+        # Pinning the versions that were just resolved leaves them in place.
+        # The CUDA index goes on as an extra index so those local-version
+        # wheels stay resolvable; PyPI alone does not carry them.
+        $FrozenPackages = & $BuildPython -m pip freeze
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not read the installed PyTorch version."
+        }
+        $TorchPins = @($FrozenPackages | Where-Object { $_ -match '^(torch|torchvision)==' })
+        if ($TorchPins.Count -lt 2) {
+            throw "PyTorch installation did not produce pinnable torch and torchvision versions: $($FrozenPackages -join ', ')"
+        }
+        $TorchConstraints = Join-Path $BuildRoot "torch-constraints.txt"
+        $TorchPins | Set-Content -LiteralPath $TorchConstraints -Encoding ASCII
+        Write-Host "Holding $($TorchPins -join ' and ') against later resolution."
+        $PinnedTorchArguments = @("--constraint", $TorchConstraints, "--extra-index-url", $TorchIndexUrl)
     }
-    Invoke-Checked $BuildPython @("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ProjectRoot "requirements.txt")) "Pole Position dependency installation"
-    Invoke-Checked $BuildPython @("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ScriptDirectory "requirements-build.txt")) "PyInstaller installation"
+    Invoke-Checked $BuildPython (@("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ProjectRoot "requirements.txt")) + $PinnedTorchArguments) "Pole Position dependency installation"
+    Invoke-Checked $BuildPython (@("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ScriptDirectory "requirements-build.txt")) + $PinnedTorchArguments) "PyInstaller installation"
 }
 Invoke-Checked $BuildPython @("-m", "pip", "check") "Dependency check"
 
@@ -290,8 +314,21 @@ if ($LASTEXITCODE -ne 0) {
 }
 $TorchInfo = $TorchProbeRaw | ConvertFrom-Json
 Write-Host "  torch            : $($TorchInfo.torch)"
-if ($TorchInfo.cuda) {
-    Write-Host "  CUDA             : available (CUDA $($TorchInfo.cuda_version), $($TorchInfo.device))" -ForegroundColor Green
+
+# Whether the wheel is a CUDA build and whether this bench can see a GPU are
+# separate questions, and only the first one is a property of the bundle. A
+# build machine with no NVIDIA driver still produces a perfectly good CUDA
+# bundle for a station that has one.
+if ($TorchInfo.cuda_version) {
+    if ($TorchInfo.cuda) {
+        Write-Host "  CUDA             : available (CUDA $($TorchInfo.cuda_version), $($TorchInfo.device))" -ForegroundColor Green
+    } else {
+        Write-Host "  CUDA             : bundled (CUDA $($TorchInfo.cuda_version)), no GPU visible on this build machine" -ForegroundColor Yellow
+    }
+} elseif ($TorchIndexUrl) {
+    # Asked for CUDA and did not get it. Shipping a silently CPU-only bundle to
+    # a GPU workstation is the failure this check exists to prevent.
+    throw "A CUDA PyTorch index was requested ($TorchIndexUrl) but the installed build is CPU-only ($($TorchInfo.torch)). Something later in the install replaced the CUDA wheel. Rerun with -Clean; if it recurs, check whether the index carries a wheel matching the versions the requirements allow."
 } else {
     Write-Warning @"
 This build has CPU-only PyTorch. Model training will work but will be far

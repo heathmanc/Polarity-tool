@@ -6,6 +6,7 @@
 # Example for Blackwell/RTX 50-series systems:
 #   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 # Then install this file. Ultralytics will reuse the installed CUDA torch build.
-# A fresh install without a CUDA torch package may receive a CPU torch build.
+# A fresh install without a CUDA torch package may receive a CPU torch build,
+# and so will an install run with --upgrade; see requirements-training.txt.
 -r requirements-runtime.txt
 -r requirements-training.txt
