@@ -94,13 +94,74 @@ if ($RequirementsLock) {
     }
     Invoke-Checked $BuildPython $LockedInstall "Locked dependency installation"
 } else {
+    $PinnedTorchArguments = @()
     if ($TorchIndexUrl) {
         Invoke-Checked $BuildPython @("-m", "pip", "install", "--upgrade", "torch", "torchvision", "--index-url", $TorchIndexUrl) "PyTorch installation"
+
+        # Installing the CUDA wheel first does not keep it. requirements.txt
+        # names torch directly, and pip takes a directly named requirement to
+        # the newest version its index offers when --upgrade is passed, even
+        # though the installed version already satisfies the range. PyPI's
+        # newest Windows wheel is CPU-only and satisfies torch>=2.2, so the
+        # next install would uninstall the CUDA build and the release would
+        # reach a GPU station without GPU support. Pin what was resolved.
+        $FrozenPackages = & $BuildPython -m pip freeze
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not read the installed PyTorch version."
+        }
+        $TorchPins = @($FrozenPackages | Where-Object { $_ -match '^(torch|torchvision)==' })
+        if ($TorchPins.Count -lt 2) {
+            throw "PyTorch installation did not produce pinnable torch and torchvision versions: $($FrozenPackages -join ', ')"
+        }
+        $TorchConstraints = Join-Path $BuildRoot "torch-constraints.txt"
+        $TorchPins | Set-Content -LiteralPath $TorchConstraints -Encoding ASCII
+        Write-Host "Holding $($TorchPins -join ' and ') against later resolution."
+        $PinnedTorchArguments = @("--constraint", $TorchConstraints, "--extra-index-url", $TorchIndexUrl)
     }
-    Invoke-Checked $BuildPython @("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ProjectRoot "requirements.txt")) "Pole Position dependency installation"
-    Invoke-Checked $BuildPython @("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ScriptDirectory "requirements-build.txt")) "Installer build dependency installation"
+    Invoke-Checked $BuildPython (@("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ProjectRoot "requirements.txt")) + $PinnedTorchArguments) "Pole Position dependency installation"
+    Invoke-Checked $BuildPython (@("-m", "pip", "install", "--upgrade", "-r", (Join-Path $ScriptDirectory "requirements-build.txt")) + $PinnedTorchArguments) "Installer build dependency installation"
 }
 Invoke-Checked $BuildPython @("-m", "pip", "check") "Dependency check"
+
+# What kind of PyTorch is in the build environment decides what the station
+# gets, whether or not this build machine has a GPU of its own. The probe goes
+# in a file: PowerShell strips embedded double quotes when it hands arguments
+# to a native executable, so JSON-emitting source cannot be passed after -c.
+$TorchProbeFile = Join-Path $BuildRoot "torch_probe.py"
+@'
+import json
+import torch
+
+print(
+    json.dumps(
+        {
+            "torch": torch.__version__,
+            "cuda": bool(torch.cuda.is_available()),
+            "cuda_version": str(getattr(torch.version, "cuda", "") or ""),
+            "device": (
+                torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
+            ),
+        }
+    )
+)
+'@ | Set-Content -LiteralPath $TorchProbeFile -Encoding UTF8
+
+$TorchProbeRaw = & $BuildPython @($TorchProbeFile)
+if ($LASTEXITCODE -ne 0) {
+    throw "The bundled PyTorch could not be imported."
+}
+$TorchInfo = $TorchProbeRaw | ConvertFrom-Json
+Write-Host "PyTorch in the release environment: $($TorchInfo.torch)"
+if ($TorchInfo.cuda_version) {
+    $DeviceNote = if ($TorchInfo.cuda) { $TorchInfo.device } else { "no GPU visible on this build machine" }
+    Write-Host "  CUDA $($TorchInfo.cuda_version) ($DeviceNote)" -ForegroundColor Green
+} elseif ($TorchIndexUrl) {
+    # Asked for CUDA and did not get it. A release that silently drops GPU
+    # support reaches every station in the release.
+    throw "A CUDA PyTorch index was requested ($TorchIndexUrl) but the installed build is CPU-only ($($TorchInfo.torch)). Rerun with -Clean; if it recurs, check whether the index carries a wheel matching the versions the requirements allow."
+} else {
+    Write-Host "  CPU-only. Pass -TorchIndexUrl to build for a CUDA station." -ForegroundColor Yellow
+}
 Invoke-Checked $BuildPython @((Join-Path $ProjectRoot "scripts\verify_install.py")) "Pole Position source installation check"
 
 if (-not $InnoCompiler) {
@@ -208,6 +269,9 @@ $Manifest = [ordered]@{
     pylon_runtime_signature_status = [string]$PylonSignature.Status
     model_weights_included = $false
     full_training_runtime_included = $true
+    torch_version = $TorchInfo.torch
+    cuda_available = [bool]$TorchInfo.cuda
+    cuda_version = $TorchInfo.cuda_version
 }
 $Manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $AppDirectory "BUILD-MANIFEST.json") -Encoding UTF8
 

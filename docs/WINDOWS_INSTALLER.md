@@ -146,6 +146,15 @@ pass the PyTorch index selected for that driver/toolkit combination:
   -Clean
 ```
 
+The build pins the CUDA `torch` and `torchvision` versions it resolves and
+carries that pin through every later install, because `pip install --upgrade`
+takes a directly named requirement to the newest version its index offers even
+when the installed one already satisfies the range -- and PyPI's newest Windows
+wheel is CPU-only. It then verifies what was actually resolved: passing
+`-TorchIndexUrl` and ending up with a CPU-only build fails the release rather
+than shipping a station bundle without GPU support. Whether the build machine
+itself has a GPU does not affect the result.
+
 Use one controlled dependency/GPU choice for every station in the release.
 
 For a production release, sign both the application and final installer with

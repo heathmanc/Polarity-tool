@@ -198,6 +198,10 @@ def test_the_build_script_and_installer_are_present_and_non_empty() -> None:
 # keep the release build's guards rather than trading them for convenience.
 
 LOCAL_BUILD = WINDOWS / "build-local.ps1"
+RELEASE_BUILD = WINDOWS / "build-installer.ps1"
+# Both build paths install the same dependency set the same way, so a
+# dependency-resolution defect in one is a defect in the other.
+BUILD_SCRIPTS = (LOCAL_BUILD, RELEASE_BUILD)
 
 
 def test_local_build_script_and_wrapper_exist() -> None:
@@ -315,11 +319,12 @@ def test_the_bundled_torch_probe_is_valid_python() -> None:
 
     import ast
 
-    script = LOCAL_BUILD.read_text(encoding="utf-8")
-    match = re.search(r"@'\n(.*?)\n'@ \| Set-Content", script, re.S)
-    assert match is not None, "the torch probe here-string is missing"
+    for script_path in BUILD_SCRIPTS:
+        script = script_path.read_text(encoding="utf-8")
+        match = re.search(r"@'\n(.*?)\n'@ \| Set-Content", script, re.S)
+        assert match is not None, f"{script_path.name}: torch probe here-string missing"
 
-    ast.parse(match.group(1))
+        ast.parse(match.group(1))
 
 
 def test_python_source_is_never_passed_inline_to_the_interpreter() -> None:
@@ -401,21 +406,23 @@ def test_a_requested_cuda_torch_survives_the_rest_of_the_install() -> None:
     CPU-only bundle to a workstation with a 5090 in it.
     """
 
-    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    for script_path in BUILD_SCRIPTS:
+        script = script_path.read_text(encoding="utf-8")
 
-    assert "--constraint" in script, "the resolved torch versions must be pinned"
-    assert "torch-constraints.txt" in script
+        assert "--constraint" in script, f"{script_path.name}: torch is not pinned"
+        assert "torch-constraints.txt" in script
 
-    installs = [
-        line
-        for line in script.splitlines()
-        if "pip" in line and '"install"' in line and "requirements" in line
-    ]
-    assert installs, "no requirements install found"
-    for line in installs:
-        assert "$PinnedTorchArguments" in line, (
-            f"this install can replace the CUDA wheel: {line.strip()}"
-        )
+        installs = [
+            line
+            for line in script.splitlines()
+            if "pip" in line and '"install"' in line and "requirements" in line
+        ]
+        assert installs, f"{script_path.name}: no requirements install found"
+        for line in installs:
+            assert "$PinnedTorchArguments" in line, (
+                f"{script_path.name}: this install can replace the CUDA wheel: "
+                f"{line.strip()}"
+            )
 
 
 def test_the_local_build_refuses_to_ship_a_cpu_bundle_that_asked_for_cuda() -> None:
@@ -426,11 +433,12 @@ def test_the_local_build_refuses_to_ship_a_cpu_bundle_that_asked_for_cuda() -> N
     GPU is visible here, which is a property of the bench.
     """
 
-    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    for script_path in BUILD_SCRIPTS:
+        script = script_path.read_text(encoding="utf-8")
 
-    assert 'if ($TorchInfo.cuda_version) {' in script, (
-        "the CUDA build must be detected by torch.version.cuda, not by whether "
-        "this machine happens to have a driver"
-    )
-    assert "elseif ($TorchIndexUrl)" in script
-    assert "but the installed build is CPU-only" in script
+        assert "if ($TorchInfo.cuda_version) {" in script, (
+            f"{script_path.name}: the CUDA build must be detected by "
+            "torch.version.cuda, not by whether this machine has a driver"
+        )
+        assert "elseif ($TorchIndexUrl)" in script, script_path.name
+        assert "but the installed build is CPU-only" in script, script_path.name
