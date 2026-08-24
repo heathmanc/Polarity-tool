@@ -60,6 +60,18 @@ Useful switches:
 | `-AllowUnqualifiedPython` | Build on a Python other than the qualified 3.11 x64 |
 | `-Archive` | Also produce the `.zip` and its checksum |
 
+**CUDA is not bundled unless you ask for it.** The requirements resolve torch
+from PyPI, which serves the CPU-only wheel on Windows, so a build made without
+`-TorchIndexUrl` produces an application that reports no GPU even on a machine
+that has one — what matters is the build environment, not the workstation. The
+build prints which PyTorch it bundled and records `cuda_available` in
+`BUILD-MANIFEST.json`. For a CUDA build, pass the index matching the
+workstation's CUDA support:
+
+```powershell
+.\build-local.ps1 -Clean -TorchIndexUrl https://download.pytorch.org/whl/cu128
+```
+
 Two things are still not bundled, and neither can be:
 
 - **The Basler pylon Runtime Redistributable.** The pypylon *bindings* are

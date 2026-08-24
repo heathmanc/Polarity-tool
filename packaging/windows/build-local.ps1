@@ -184,6 +184,36 @@ if ($RequirementsLock) {
 }
 Invoke-Checked $BuildPython @("-m", "pip", "check") "Dependency check"
 
+# --- what kind of PyTorch got bundled --------------------------------------
+#
+# Plain `pip install -r requirements.txt` resolves torch from PyPI, which on
+# Windows is the CPU-only wheel. A workstation that had CUDA before a build can
+# therefore end up with a CPU-only frozen application, because what matters is
+# the build environment, not the machine's own installation.
+Write-Step "Checking the bundled PyTorch build"
+$TorchProbeCode = 'import json,torch;print(json.dumps({"torch":torch.__version__,"cuda":bool(torch.cuda.is_available()),"cuda_version":str(getattr(torch.version,"cuda","") or ""),"device":(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "")}))'
+$TorchProbeRaw = & $BuildPython @("-c", $TorchProbeCode)
+if ($LASTEXITCODE -ne 0) {
+    throw "The bundled PyTorch could not be imported."
+}
+$TorchInfo = $TorchProbeRaw | ConvertFrom-Json
+Write-Host "  torch            : $($TorchInfo.torch)"
+if ($TorchInfo.cuda) {
+    Write-Host "  CUDA             : available (CUDA $($TorchInfo.cuda_version), $($TorchInfo.device))" -ForegroundColor Green
+} else {
+    Write-Warning @"
+This build has CPU-only PyTorch. Model training will work but will be far
+slower, and the application will report no GPU even on a machine that has one.
+
+Requirements resolve torch from PyPI, which serves the CPU wheel on Windows.
+To bundle a CUDA build, rerun with the index matching this workstation's CUDA
+support, for example:
+
+  .\build-local.ps1 -Clean -TorchIndexUrl https://download.pytorch.org/whl/cu128
+"@
+}
+
+
 # --- pre-build gates -------------------------------------------------------
 
 if (-not $SkipChecks) {
@@ -275,6 +305,9 @@ $Manifest = [ordered]@{
     built_at_utc = [DateTime]::UtcNow.ToString("o")
     model_weights_included = $false
     full_training_runtime_included = $true
+    torch_version = $TorchInfo.torch
+    cuda_available = [bool]$TorchInfo.cuda
+    cuda_version = $TorchInfo.cuda_version
     pylon_runtime_included = $false
     installer_built = $false
     notes = "Built by build-local.ps1. Fully bundled application without the Basler pylon Runtime Redistributable and without an Inno Setup installer. Use build-installer.ps1 for the distributable release."
@@ -349,6 +382,11 @@ if ($ArchivePath) {
 Write-Host ""
 Write-Host "Bundled: Python, Qt/PySide6, OpenCV, ONNX Runtime, pypylon and pycomm3"
 Write-Host "bindings, and the complete PyTorch/Ultralytics training runtime."
+if ($TorchInfo.cuda) {
+    Write-Host "PyTorch $($TorchInfo.torch) with CUDA $($TorchInfo.cuda_version)."
+} else {
+    Write-Host "PyTorch $($TorchInfo.torch), CPU only - see the warning above." -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "Still required on a station:" -ForegroundColor Yellow
 Write-Host "  * Basler pylon Runtime Redistributable, for real camera hardware."

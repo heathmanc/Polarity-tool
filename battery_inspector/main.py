@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +24,42 @@ from battery_inspector.controller import AppController  # noqa: E402
 from battery_inspector.paths import resource_root, station_root  # noqa: E402
 from battery_inspector.station_transfer import apply_pending_restore  # noqa: E402
 from battery_inspector.ui import MainWindow  # noqa: E402
+
+
+def _ensure_standard_streams(station: Path) -> None:
+    """Give a windowed frozen build somewhere for stdout and stderr to go.
+
+    PyInstaller builds this application with console=False, and a windowed
+    frozen process has sys.stdout and sys.stderr set to None. Anything that
+    prints then raises "AttributeError: 'NoneType' object has no attribute
+    'write'". Ultralytics prints training progress, so model training failed
+    immediately in a packaged build while working perfectly from source; the
+    baseline notice below would have done the same.
+
+    Output goes to a log file in the station directory rather than to devnull,
+    because a training run that fails is exactly when its output is wanted.
+    """
+
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+
+    stream = None
+    try:
+        logs = station / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        stream = open(  # noqa: SIM115 - lives for the life of the process
+            logs / "pole-position.log", "a", encoding="utf-8", errors="replace", buffering=1
+        )
+    except OSError:
+        try:
+            stream = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+        except OSError:
+            return
+
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
 
 
 def project_root() -> Path:
@@ -140,6 +177,8 @@ def verify_frozen_install(resources: Path, station: Path) -> int:
 def main() -> int:
     resources = resource_root()
     station = station_root()
+    # Before anything can print, including the install check below.
+    _ensure_standard_streams(station)
     if "--verify-install" in sys.argv:
         return verify_frozen_install(resources, station)
     config_path = station / "config.json"

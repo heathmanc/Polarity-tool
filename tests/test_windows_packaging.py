@@ -291,3 +291,35 @@ def test_every_script_importing_the_package_bootstraps_sys_path() -> None:
         f"these scripts import battery_inspector without putting the repository "
         f"root on sys.path: {offenders}"
     )
+
+
+def test_the_local_build_reports_whether_cuda_was_bundled() -> None:
+    """The build environment decides, not the machine that runs the result.
+
+    `pip install -r requirements.txt` resolves torch from PyPI, which serves the
+    CPU-only wheel on Windows, so a workstation with a working CUDA setup can
+    still produce a CPU-only application and report no GPU afterwards.
+    """
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+
+    assert "torch.cuda.is_available()" in script
+    assert "cuda_available" in script, "the build manifest must record it"
+    assert "-TorchIndexUrl https://download.pytorch.org/whl/" in script, (
+        "the warning must show how to bundle a CUDA build"
+    )
+
+
+def test_the_bundled_torch_probe_is_valid_python() -> None:
+    """It is embedded in a PowerShell literal, so it is easy to break silently."""
+
+    import ast
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    match = re.search(r"\$TorchProbeCode = '([^']+)'", script)
+    assert match is not None, "the torch probe assignment is missing"
+    probe = match.group(1)
+
+    ast.parse(probe)
+    # A single quote would terminate the PowerShell literal early.
+    assert "'" not in probe
