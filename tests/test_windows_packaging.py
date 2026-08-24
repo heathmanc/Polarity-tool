@@ -311,15 +311,42 @@ def test_the_local_build_reports_whether_cuda_was_bundled() -> None:
 
 
 def test_the_bundled_torch_probe_is_valid_python() -> None:
-    """It is embedded in a PowerShell literal, so it is easy to break silently."""
+    """The probe is embedded in the script, so it can break without notice."""
 
     import ast
 
     script = LOCAL_BUILD.read_text(encoding="utf-8")
-    match = re.search(r"\$TorchProbeCode = '([^']+)'", script)
-    assert match is not None, "the torch probe assignment is missing"
-    probe = match.group(1)
+    match = re.search(r"@'\n(.*?)\n'@ \| Set-Content", script, re.S)
+    assert match is not None, "the torch probe here-string is missing"
 
-    ast.parse(probe)
-    # A single quote would terminate the PowerShell literal early.
-    assert "'" not in probe
+    ast.parse(match.group(1))
+
+
+def test_python_source_is_never_passed_inline_to_the_interpreter() -> None:
+    """PowerShell strips embedded double quotes from native-command arguments.
+
+    Python source passed after -c therefore arrives as a syntax error, which is
+    how the torch probe first shipped. build-installer.ps1 sidesteps it by
+    writing a probe with no quote characters at all; build-local.ps1 writes its
+    probe to a file and passes the path, which has none to strip. Either is
+    fine. Quoted source after -c is not.
+    """
+
+    for script_path in sorted((ROOT / "packaging" / "windows").glob("*.ps1")):
+        script = script_path.read_text(encoding="utf-8")
+        for line in script.splitlines():
+            if '"-c"' not in line:
+                continue
+            # The argument list may name a variable; resolve simple assignments.
+            for match in re.finditer(r"\$(\w*ProbeCode)\b", line):
+                name = match.group(1)
+                assignment = re.search(
+                    rf"\${name} = (['\"])(.*?)\1", script, re.S
+                )
+                assert assignment is not None, f"{script_path.name}: {name} not found"
+                source = assignment.group(2)
+                assert '"' not in source, (
+                    f"{script_path.name}: {name} passes double-quoted Python after -c; "
+                    "PowerShell will strip those quotes and the interpreter will "
+                    "see a syntax error"
+                )

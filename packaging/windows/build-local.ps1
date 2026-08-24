@@ -191,8 +191,32 @@ Invoke-Checked $BuildPython @("-m", "pip", "check") "Dependency check"
 # therefore end up with a CPU-only frozen application, because what matters is
 # the build environment, not the machine's own installation.
 Write-Step "Checking the bundled PyTorch build"
-$TorchProbeCode = 'import json,torch;print(json.dumps({"torch":torch.__version__,"cuda":bool(torch.cuda.is_available()),"cuda_version":str(getattr(torch.version,"cuda","") or ""),"device":(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "")}))'
-$TorchProbeRaw = & $BuildPython @("-c", $TorchProbeCode)
+# The probe goes in a file rather than after -c. PowerShell strips embedded
+# double quotes when it hands arguments to a native executable, which turns
+# Python source passed inline into a syntax error. build-installer.ps1 avoids
+# this by writing its probe without any quote characters at all, using chr();
+# that is unreadable for a JSON payload, and a file path carries no quotes to
+# strip.
+$TorchProbeFile = Join-Path $BuildRoot "torch_probe.py"
+@'
+import json
+import torch
+
+print(
+    json.dumps(
+        {
+            "torch": torch.__version__,
+            "cuda": bool(torch.cuda.is_available()),
+            "cuda_version": str(getattr(torch.version, "cuda", "") or ""),
+            "device": (
+                torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
+            ),
+        }
+    )
+)
+'@ | Set-Content -LiteralPath $TorchProbeFile -Encoding UTF8
+
+$TorchProbeRaw = & $BuildPython @($TorchProbeFile)
 if ($LASTEXITCODE -ne 0) {
     throw "The bundled PyTorch could not be imported."
 }
