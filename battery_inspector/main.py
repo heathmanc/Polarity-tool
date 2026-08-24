@@ -16,6 +16,7 @@ from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtGui import QFont, QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
+from battery_inspector import __version__  # noqa: E402
 from battery_inspector.baseline import ensure_clean_v017_baseline  # noqa: E402
 from battery_inspector.config import AppConfig  # noqa: E402
 from battery_inspector.controller import AppController  # noqa: E402
@@ -170,6 +171,11 @@ def main() -> int:
         window.show()
     if restore_result:
         rollback = str(restore_result.get("rollback_backup", ""))
+        source_version = str(restore_result.get("source_application_version", "") or "unknown")
+        # A restore replaces every recipe with the version in the backup. If that
+        # backup predates a gate an operator later switched on -- a red-ring
+        # check, a terminal finish -- the station comes back grading without it,
+        # and nothing else on screen would say so.
         QTimer.singleShot(
             0,
             lambda: QMessageBox.information(
@@ -177,6 +183,12 @@ def main() -> int:
                 "Workstation restore complete",
                 "The imported workstation backup was restored successfully. "
                 "Pole Position rebased stored file paths for this PC and preserved a rollback ZIP.\n\n"
+                f"Backup written by Pole Position {source_version}; this station runs "
+                f"{__version__}.\n\n"
+                "Recipes now match the backup, not what was on this station before. "
+                "Check each active recipe's terminal settings -- expected marking, "
+                "red-ring requirement, and terminal finish -- before returning to "
+                "production.\n\n"
                 f"Rollback backup: {rollback}",
             ),
         )

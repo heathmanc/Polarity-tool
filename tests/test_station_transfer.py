@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from battery_inspector import station_transfer
+from battery_inspector.data import RecipeRepository
 
 from conftest import ROOT
 from battery_inspector.config import AppConfig, MlConfig
@@ -822,3 +823,80 @@ def test_a_lock_that_never_clears_explains_itself(tmp_path: Path, monkeypatch) -
     message = str(failure.value)
     assert "antivirus" in message
     assert "WinError 32" in message or "cannot access the file" in message
+
+
+def test_a_restore_reports_the_version_that_wrote_the_backup(tmp_path: Path) -> None:
+    """A restore replaces recipes wholesale, so its provenance has to surface.
+
+    Restoring a backup written before a gate was switched on -- a red-ring
+    requirement, a terminal finish -- brings the station back grading without
+    it. The result carries the writing version so the operator is told.
+    """
+
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    config_path, data = _source_station(source_root)
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+
+    result = apply_pending_restore(target_root, target_config)
+
+    from battery_inspector import __version__
+
+    assert result["source_application_version"] == __version__
+
+
+def test_terminal_gates_survive_a_backup_and_restore(tmp_path: Path) -> None:
+    """Red-ring and terminal-finish gates decide REJECT; losing them passes parts."""
+
+    from battery_inspector.models import TerminalFinish, TerminalRole
+
+    # A real repository, not the minimal stand-in _source_station builds: this
+    # test round-trips actual recipe rows through the application's own schema.
+    source_root = tmp_path / "source"
+    data = source_root / "runtime"
+    data.mkdir(parents=True)
+    config_path = source_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(config_path)
+
+    repository = RecipeRepository(data / "battery_inspector.db")
+    repository.seed_demo_data(
+        ROOT / "battery_inspector" / "assets" / "demo_reference_good.png"
+    )
+    recipe = repository.get_active_recipe()
+    assert recipe is not None
+    for terminal in recipe.terminals:
+        terminal.red_ring_required = True
+        terminal.expected_finish = (
+            TerminalFinish.SILVER
+            if terminal.role is TerminalRole.NEGATIVE
+            else TerminalFinish.BRASS
+        )
+    repository.save_recipe(recipe, username="test", message="gates on")
+    repository.activate_recipe(recipe.recipe_id, recipe.revision, username="test")
+
+    backup = tmp_path / "backup.zip"
+    create_station_backup(source_root, config_path, data, backup)
+
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_config = target_root / "config.json"
+    AppConfig(camera_backend="simulation", plc_backend="simulation").save(target_config)
+    stage_station_restore(target_root, backup)
+    apply_pending_restore(target_root, target_config)
+
+    restored = RecipeRepository(
+        target_root / "runtime" / "battery_inspector.db"
+    ).get_active_recipe()
+    assert restored is not None
+    assert all(terminal.red_ring_required for terminal in restored.terminals)
+    assert {terminal.expected_finish for terminal in restored.terminals} == {
+        TerminalFinish.SILVER,
+        TerminalFinish.BRASS,
+    }

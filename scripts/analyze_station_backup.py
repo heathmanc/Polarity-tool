@@ -152,7 +152,11 @@ def main() -> int:
                     "essential_bytes": essential_bytes,
                     "regenerable_bytes": optional_bytes,
                     "categories": totals,
-                    "application_version": manifest.get("software", {}).get("version", ""),
+                    "application_version": manifest.get("software", {}).get(
+                        "application_version", ""
+                    ),
+                    "git_commit": manifest.get("software", {}).get("git_commit", ""),
+                    "created_at_utc": manifest.get("created_at_utc", ""),
                 },
                 indent=2,
                 sort_keys=True,
@@ -163,9 +167,14 @@ def main() -> int:
     print(f"Backup   : {arguments.backup}")
     print(f"On disk  : {human(arguments.backup.stat().st_size)}")
     print(f"Contents : {human(stored_total)} uncompressed across {len(entries):,} files")
-    version = manifest.get("software", {}).get("version", "")
+    software = manifest.get("software", {})
+    version = software.get("application_version", "")
     if version:
-        print(f"Written by Pole Position {version}")
+        commit = str(software.get("git_commit", "") or "")
+        suffix = f" ({commit[:12]})" if commit and commit != "unknown" else ""
+        print(f"Written by Pole Position {version}{suffix}")
+    if manifest.get("created_at_utc"):
+        print(f"Created  : {manifest['created_at_utc']}")
     print()
 
     ordered = sorted(totals.items(), key=lambda item: int(item[1]["bytes"]), reverse=True)
