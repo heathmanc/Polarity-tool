@@ -23,7 +23,13 @@ from battery_inspector.ui.pages.ml_training import MlTrainingPage
 from battery_inspector.ui.pages.overview import OverviewPage
 from battery_inspector.ui.pages.recipes import RecipesPage
 from battery_inspector.ui.pages.settings import SettingsPage
-from battery_inspector.ui.widgets import HealthItem, MetricCard, NavButton, StatusPill
+from battery_inspector.ui.widgets import (
+    HealthItem,
+    MetricCard,
+    NavButton,
+    StatusPill,
+    VerticalScrollArea,
+)
 
 
 class MainWindow(QMainWindow):
@@ -80,7 +86,15 @@ class MainWindow(QMainWindow):
             self.events_page,
             self.settings_page,
         ):
-            self.stack.addWidget(page)
+            # Behind a scroll view, always. The station window's minimum is
+            # shorter than several of these pages need, so a layout short of
+            # room takes the shortfall out of whichever widgets will yield --
+            # wrapped text and image panels first -- and they draw over each
+            # other. How short depends on the monitor and, far more often, on
+            # the Windows scale factor: a 4K panel at 150% offers a 1280x720
+            # workspace. Scrolling the overflow keeps every element at the size
+            # it was laid out for on every screen.
+            self.stack.addWidget(VerticalScrollArea(page))
 
         layout.addWidget(self._build_footer())
 
@@ -226,6 +240,14 @@ class MainWindow(QMainWindow):
         layout.addSpacing(18)
         layout.addWidget(help_button)
         return footer
+
+    def page_at(self, index: int) -> QWidget:
+        """The page itself, not the scroll view holding it."""
+
+        return self.stack.widget(index).widget()
+
+    def current_page(self) -> QWidget:
+        return self.stack.currentWidget().widget()
 
     def navigate(self, index: int) -> None:
         self.stack.setCurrentIndex(index)

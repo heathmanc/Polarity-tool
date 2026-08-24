@@ -464,14 +464,17 @@ class SettingsPage(QWidget):
             self.resolution_mode,
             self.controller.config.camera.resolution_mode,
         )
-        self.width = QSpinBox()
-        self.width.setRange(1, 100_000)
-        self.width.setValue(max(1, self.controller.config.camera.width or 1))
-        self.width.setSuffix(" px")
-        self.height = QSpinBox()
-        self.height.setRange(1, 100_000)
-        self.height.setValue(max(1, self.controller.config.camera.height or 1))
-        self.height.setSuffix(" px")
+        # Not self.width / self.height: those are QWidget methods, and
+        # binding a spin box over them makes any call to widget.width() or
+        # widget.height() on this page raise instead of returning a size.
+        self.frame_width = QSpinBox()
+        self.frame_width.setRange(1, 100_000)
+        self.frame_width.setValue(max(1, self.controller.config.camera.width or 1))
+        self.frame_width.setSuffix(" px")
+        self.frame_height = QSpinBox()
+        self.frame_height.setRange(1, 100_000)
+        self.frame_height.setValue(max(1, self.controller.config.camera.height or 1))
+        self.frame_height.setSuffix(" px")
         self.center_roi = QCheckBox("Center a custom acquisition ROI automatically")
         self.center_roi.setChecked(self.controller.config.camera.center_roi)
         self.offset_x = QSpinBox()
@@ -496,8 +499,8 @@ class SettingsPage(QWidget):
         self.camera_timeout.setSuffix(" ms")
 
         image_form.addRow("Resolution mode", self.resolution_mode)
-        image_form.addRow("Width", self.width)
-        image_form.addRow("Height", self.height)
+        image_form.addRow("Width", self.frame_width)
+        image_form.addRow("Height", self.frame_height)
         image_form.addRow("ROI placement", self.center_roi)
         image_form.addRow("Offset X", self.offset_x)
         image_form.addRow("Offset Y", self.offset_y)
@@ -1014,8 +1017,8 @@ class SettingsPage(QWidget):
             self.gain_auto,
             self.gain,
             self.resolution_mode,
-            self.width,
-            self.height,
+            self.frame_width,
+            self.frame_height,
             self.center_roi,
             self.offset_x,
             self.offset_y,
@@ -1085,8 +1088,8 @@ class SettingsPage(QWidget):
     def update_resolution_controls(self) -> None:
         custom = self._combo_value(self.resolution_mode) == "Custom"
         self.center_roi.setEnabled(custom)
-        self.width.setEnabled(custom)
-        self.height.setEnabled(custom)
+        self.frame_width.setEnabled(custom)
+        self.frame_height.setEnabled(custom)
         offsets_enabled = custom and not self.center_roi.isChecked()
         self.offset_x.setEnabled(offsets_enabled)
         self.offset_y.setEnabled(offsets_enabled)
@@ -1263,8 +1266,8 @@ class SettingsPage(QWidget):
             f"{max(1, int(caps.height.increment or 1))}"
         )
 
-        self._configure_integer_control(self.width, caps.width, active_width)
-        self._configure_integer_control(self.height, caps.height, active_height)
+        self._configure_integer_control(self.frame_width, caps.width, active_width)
+        self._configure_integer_control(self.frame_height, caps.height, active_height)
         self._configure_integer_control(self.offset_x, caps.offset_x, int(caps.offset_x.current))
         self._configure_integer_control(self.offset_y, caps.offset_y, int(caps.offset_y.current))
 
@@ -1590,8 +1593,8 @@ class SettingsPage(QWidget):
             timeout_ms=self.camera_timeout.value(),
             pixel_format=str(self.pixel_format.currentData() or ""),
             resolution_mode=self._combo_value(self.resolution_mode),
-            width=self.width.value(),
-            height=self.height.value(),
+            width=self.frame_width.value(),
+            height=self.frame_height.value(),
             center_roi=self.center_roi.isChecked(),
             offset_x=self.offset_x.value(),
             offset_y=self.offset_y.value(),

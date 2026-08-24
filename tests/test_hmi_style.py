@@ -65,12 +65,38 @@ def test_pole_position_brand_and_icon_are_wired_into_the_hmi() -> None:
     assert image_count >= 6
 
 
-def test_primary_ui_contains_no_scroll_area() -> None:
-    python_sources = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in UI.rglob("*.py")
-    )
-    assert "QScrollArea" not in python_sources
+def test_scrolling_exists_only_as_the_sanctioned_overflow_container() -> None:
+    """Station pages fit and paginate. Exactly one exception is allowed.
+
+    The rule this replaces forbade QScrollArea outright, and it was the right
+    instinct: an operator should never have to hunt for a control that is off
+    screen. It could not hold in practice. The window's minimum is shorter than
+    several pages need, and Windows display scaling makes the workspace smaller
+    still -- a 4K panel at 150% reports 1280x720. A layout denied the room it
+    needs does not refuse; it compresses its children until wrapped text and
+    image panels draw over each other, which is worse than a scroll bar and far
+    harder to notice.
+
+    So scrolling is permitted only through VerticalScrollArea, only as the
+    container MainWindow puts every page behind, and it shows nothing at all
+    when the page fits -- which on a correctly specified station is always.
+    Pages themselves still must not scroll their own content: a page that needs
+    to scroll on a normal workspace is a page to redesign, and
+    test_no_page_is_compressed_at_any_workspace_size measures that directly.
+    """
+
+    for path in sorted(UI.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if "QScrollArea" not in source and "VerticalScrollArea" not in source:
+            continue
+        if path.name == "widgets.py":
+            continue
+        assert "QScrollArea" not in source, (
+            f"{path.name} builds its own scroll area; use VerticalScrollArea"
+        )
+        assert path.name == "main_window.py", (
+            f"{path.name} scrolls its own content; only MainWindow may scroll a page"
+        )
 
 
 def test_scrollbar_chrome_is_suppressed() -> None:

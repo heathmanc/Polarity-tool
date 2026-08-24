@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -43,7 +44,21 @@ from battery_inspector.ui.palette import (
     SURFACE_ALT,
     TEXT_MUTED,
 )
-from battery_inspector.ui.widgets import LabeledValue, PageNavigator, PanelFrame, StepIndicator
+from battery_inspector.ui.widgets import (
+    LabeledValue,
+    PageNavigator,
+    PanelFrame,
+    StepIndicator,
+)
+
+
+# Review-grid geometry. These are floors, not fixed sizes: the cards grow with
+# the workspace and stop shrinking at the point where a terminal-top crop stops
+# being judgeable and the controls under it stop being separable.
+REVIEW_GRID_COLUMNS = 3
+REVIEW_CARD_MIN_WIDTH = 210
+REVIEW_CARD_MIN_HEIGHT = 200
+REVIEW_META_LINES = 2
 
 
 class MlTrainingPage(QWidget):
@@ -604,9 +619,21 @@ class MlTrainingPage(QWidget):
         self._review_page_size = 6
         self._review_filtered_samples: list[dict[str, Any]] = []
         self.review_cards: list[dict[str, Any]] = []
-        grid = QGridLayout()
+        grid_host = QWidget()
+        grid = QGridLayout(grid_host)
+        grid.setContentsMargins(0, 0, 6, 0)
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
+        # Every cell is given the same weight and a floor, so a card keeps its
+        # shape whichever page is showing. Without this the last page -- which
+        # hides the cards it has no sample for -- collapsed the empty cells and
+        # resized the remaining ones, and the grid appeared to jump.
+        for column in range(REVIEW_GRID_COLUMNS):
+            grid.setColumnStretch(column, 1)
+            grid.setColumnMinimumWidth(column, REVIEW_CARD_MIN_WIDTH)
+        for row in range(-(-self._review_page_size // REVIEW_GRID_COLUMNS)):
+            grid.setRowStretch(row, 1)
+            grid.setRowMinimumHeight(row, REVIEW_CARD_MIN_HEIGHT)
         for index in range(self._review_page_size):
             panel = PanelFrame(subpanel=True)
             layout = QVBoxLayout(panel)
@@ -616,7 +643,13 @@ class MlTrainingPage(QWidget):
             preview.setMinimumSize(180, 115)
             layout.addWidget(preview, 1)
             meta = QLabel("—")
-            meta.setWordWrap(True)
+            # Two lines, always. Wrapped text of varying length was changing
+            # each card's height, which moved the controls under it and, in a
+            # short workspace, pushed them over the preview above. The facts
+            # that do not fit are in the tooltip, not dropped.
+            meta.setWordWrap(False)
+            meta.setTextFormat(Qt.TextFormat.PlainText)
+            meta.setFixedHeight(REVIEW_META_LINES * QFontMetrics(meta.font()).lineSpacing() + 4)
             meta.setProperty("muted", True)
             layout.addWidget(meta)
             actions = QHBoxLayout()
@@ -643,8 +676,8 @@ class MlTrainingPage(QWidget):
                 lambda _checked=False, card_index=index: self._review_remove(card_index)
             )
             self.review_cards.append(card)
-            grid.addWidget(panel, index // 3, index % 3)
-        root.addLayout(grid, 1)
+            grid.addWidget(panel, index // REVIEW_GRID_COLUMNS, index % REVIEW_GRID_COLUMNS)
+        root.addWidget(grid_host, 1)
 
         self.review_pager = PageNavigator("DATA PAGE")
         self.review_pager.previous_requested.connect(
@@ -724,12 +757,21 @@ class MlTrainingPage(QWidget):
             capture_id = str(sample.get("source_capture_id", ""))
             family = str(sample.get("collection_tag", "")).strip() or "UNTAGGED"
             quality = dict(sample.get("crop_quality") or {})
+            width_px = int(sample.get("width_px", 0) or 0)
+            height_px = int(sample.get("height_px", 0) or 0)
+            contract = str(sample.get("crop_contract", "taught_circle_masked_square_v1"))
             card["meta"].setText(
                 f"{label.upper()}  •  {family}\n"
-                f"Capture {capture_id[:14] or '—'}  •  "
-                f"{int(sample.get('width_px', 0) or 0)} × {int(sample.get('height_px', 0) or 0)}  •  "
-                f"Quality {str(quality.get('status', '—')).upper()}  •  "
-                f"{str(sample.get('crop_contract', 'taught_circle_masked_square_v1'))}"
+                f"{width_px} × {height_px}  •  "
+                f"QUALITY {str(quality.get('status', '—')).upper()}"
+            )
+            card["meta"].setToolTip(
+                f"Label: {label.upper()}\n"
+                f"Family: {family}\n"
+                f"Capture: {capture_id or '—'}\n"
+                f"Crop: {width_px} × {height_px}\n"
+                f"Quality: {str(quality.get('status', '—')).upper()}\n"
+                f"Contract: {contract}"
             )
         detail = f"{total} MATCHING / {len(self.controller.ml_training_samples())} TOTAL"
         self.review_pager.set_page(self._review_page_index, page_count if total else 0, detail)

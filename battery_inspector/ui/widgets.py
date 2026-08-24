@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -34,6 +35,41 @@ from battery_inspector.ui.palette import (
 
 # Re-export the state colors for existing UI modules.
 MUTED = TEXT_MUTED
+
+
+class VerticalScrollArea(QScrollArea):
+    """A vertical scroll container that never squeezes what it holds.
+
+    When a layout runs out of vertical room, Qt compresses its children below
+    the size each one asked for, and widgets whose height depends on their width
+    -- wrapped text above all -- end up drawn over their neighbours. The page
+    that looked right on the monitor it was designed on overlaps itself on a
+    shorter one. Windows display scaling makes that common rather than
+    exceptional: a 3840x2160 monitor at 150% offers a 1280x720 workspace, less
+    height than this application's own minimum window.
+
+    Scrolling instead of compressing keeps every element at its designed size on
+    every monitor and at every scale factor, which is the only way a station
+    screen can be relied on not to shift.
+    """
+
+    def __init__(self, content: QWidget, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # The global stylesheet hides scroll bars, because a station page is
+        # meant to fit its screen and paginate rather than scroll. This object
+        # name restores a visible bar for these panels only, so that when the
+        # workspace really is too short the operator can see that there is more
+        # below instead of silently losing it.
+        self.setObjectName("ScrollPanel")
+        self.setWidget(content)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        # Vertical only. A horizontal bar would mean content narrower than the
+        # panel, which is a layout fault to fix rather than to scroll past.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.viewport().setAutoFillBackground(False)
+        content.setAutoFillBackground(False)
 
 
 class PanelFrame(QFrame):
@@ -73,7 +109,10 @@ class StatusPill(QFrame):
     def __init__(self, title: str, subtitle: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setMinimumWidth(142)
-        self.setMaximumHeight(54)
+        # No height cap. A 20px title over a 10px subtitle needs 58px with the
+        # margins below, and capping it at 54 clipped the state text on every
+        # screen. The header it sits in is a fixed height, so it cannot grow.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self._title = QLabel(title)
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title.setStyleSheet("font-size: 20px; font-weight: 800;")

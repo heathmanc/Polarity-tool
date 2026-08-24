@@ -90,7 +90,7 @@ def _recipe(number: int = 7, name: str = "MODEL_A") -> Recipe:
 def test_main_window_builds_every_page(window) -> None:
     assert window.stack.count() == len(PAGE_TYPES)
     for index, page_type in PAGE_TYPES:
-        assert isinstance(window.stack.widget(index), page_type)
+        assert isinstance(window.page_at(index), page_type)
 
 
 @pytest.mark.parametrize("index,page_type", PAGE_TYPES)
@@ -98,7 +98,7 @@ def test_every_page_can_be_navigated_to(window, index, page_type) -> None:
     window.navigate(index)
 
     assert window.stack.currentIndex() == index
-    assert isinstance(window.stack.currentWidget(), page_type)
+    assert isinstance(window.current_page(), page_type)
 
 
 def test_window_opens_on_overview_with_the_controller_baseline(window, controller) -> None:
