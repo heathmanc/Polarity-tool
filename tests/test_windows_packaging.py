@@ -442,3 +442,18 @@ def test_the_local_build_refuses_to_ship_a_cpu_bundle_that_asked_for_cuda() -> N
         )
         assert "elseif ($TorchIndexUrl)" in script, script_path.name
         assert "but the installed build is CPU-only" in script, script_path.name
+
+
+def test_the_installer_compresses_its_payload_in_parallel() -> None:
+    """A single-threaded solid stream over this payload takes hours.
+
+    The installer carries the frozen station and the CUDA training runtime --
+    several gigabytes -- and Inno Setup's LZMA2 uses one thread unless told
+    otherwise, printing nothing while it works. That looked like a hang.
+    """
+
+    installer = (WINDOWS / "PolePosition.iss").read_text(encoding="utf-8")
+
+    match = re.search(r"^LZMANumBlockThreads=(\d+)", installer, re.M)
+    assert match is not None, "LZMA2 would compress the payload single-threaded"
+    assert int(match.group(1)) > 1

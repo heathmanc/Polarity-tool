@@ -36,6 +36,12 @@ SetupIconFile={#AppIconFile}
 UninstallDisplayIcon={app}\{#AppExeName}
 Compression=lzma2/ultra64
 SolidCompression=yes
+; The payload is the whole frozen station plus the CUDA training runtime, which
+; runs to several gigabytes. LZMA2 compresses with one thread by default, and a
+; solid ultra64 stream over that much data takes hours on a single core with the
+; compiler showing no progress the entire time. Splitting it across four threads
+; keeps the compression level and costs a low single-digit percentage of ratio.
+LZMANumBlockThreads=4
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
