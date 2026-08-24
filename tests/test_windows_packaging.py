@@ -188,3 +188,82 @@ def test_the_build_script_and_installer_are_present_and_non_empty() -> None:
     for name in ("build-installer.ps1", "PolePosition.iss", "PolePosition.spec"):
         assert (WINDOWS / name).stat().st_size > 0
     assert (ROOT / "BUILD_WINDOWS_INSTALLER.cmd").stat().st_size > 0
+
+
+# --- the local application build -------------------------------------------
+#
+# build-local.ps1 produces a fully bundled application without the two release
+# prerequisites: the licensed Basler pylon Runtime Redistributable and Inno
+# Setup. These assertions pin the properties that make it safe to run -- it must
+# keep the release build's guards rather than trading them for convenience.
+
+LOCAL_BUILD = WINDOWS / "build-local.ps1"
+
+
+def test_local_build_script_and_wrapper_exist() -> None:
+    assert LOCAL_BUILD.is_file()
+    wrapper = (ROOT / "BUILD_WINDOWS_APP.cmd").read_text(encoding="utf-8")
+    assert "build-local.ps1" in wrapper
+    # Arguments must reach the script, or none of its switches are usable.
+    assert "%*" in wrapper
+
+
+def test_local_build_refuses_to_run_off_windows() -> None:
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert '$env:OS -ne "Windows_NT"' in script
+
+
+def test_local_build_bundles_the_complete_runtime() -> None:
+    """"Everything bundled" means the full requirements set and the same spec."""
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert '"requirements.txt"' in script
+    assert "requirements-build.txt" in script
+    assert "PolePosition.spec" in script
+    assert '"PyInstaller"' in script
+
+
+def test_local_build_keeps_the_model_weight_guard() -> None:
+    """A local build must not become the one that leaks weights."""
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert re.search(r"-Include\s+\*\.onnx,\*\.pt,\*\.pth", script)
+    assert "model_weights_included = $false" in script
+    assert "pylon_runtime_included = $false" in script
+
+
+def test_local_build_strips_the_onnx_test_corpora() -> None:
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert '"_internal\\onnx\\backend\\test"' in script
+    assert '"_internal\\onnx\\test"' in script
+    assert '"_internal\\onnxruntime\\datasets"' in script
+
+
+def test_local_build_defends_the_qualified_python_baseline() -> None:
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert "AllowUnqualifiedPython" in script
+    assert '$PythonVersion -eq "3.11"' in script
+    assert "qualified_python_baseline" in script
+
+
+def test_local_build_avoids_the_compress_archive_size_limit() -> None:
+    """The wrapper runs powershell.exe, where Compress-Archive caps at 2 GB.
+
+    A bundle carrying the training runtime is well past that, so the archive has
+    to come from ZipFile instead.
+    """
+
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert "System.IO.Compression.ZipFile" in script
+    invocations = [
+        line
+        for line in script.splitlines()
+        if line.strip().startswith("Compress-Archive")
+    ]
+    assert invocations == [], invocations
+
+
+def test_local_build_does_not_claim_to_replace_the_release_path() -> None:
+    script = LOCAL_BUILD.read_text(encoding="utf-8")
+    assert "build-installer.ps1" in script
+    assert "installer_built = $false" in script

@@ -987,6 +987,20 @@ The build must run on 64-bit Windows with:
 The target station does not need Python, pip, Inno Setup, Visual Studio, or
 internet access.
 
+To produce a fully bundled application **without** Inno Setup and without the
+pylon Runtime Redistributable — for a development machine or a commissioning
+bench — use the local build instead:
+
+```cmd
+BUILD_WINDOWS_APP.cmd -Clean
+```
+
+It runs the same PyInstaller spec and keeps the same guards, and it writes
+`dist\windows-local\Pole-Position-v<version>-win64\PolePosition.exe`. A station
+still receives the installer built below; see
+[Windows installer](docs/WINDOWS_INSTALLER.md) for the switches and for what
+remains unbundled.
+
 ### Standard CPU build
 
 Open PowerShell in the source root:
@@ -1268,6 +1282,7 @@ Pole-Position/
 |-- README.md                         current project/handoff authority
 |-- BUILD_NOTES.md                    current build and schema identity
 |-- BUILD_WINDOWS_INSTALLER.cmd       simple CPU installer wrapper
+|-- BUILD_WINDOWS_APP.cmd             local fully bundled application build
 |-- CONTRIBUTING.md                   development setup and change expectations
 |-- LICENSE                           proprietary terms
 |-- SECURITY.md                       private vulnerability reporting
@@ -1310,7 +1325,8 @@ Pole-Position/
 |       |-- theme.qss                  application stylesheet
 |       `-- wizard/recipe_wizard.py    seven-step recipe workflow
 |-- packaging/windows/
-|   |-- build-installer.ps1           controlled Windows build
+|   |-- build-installer.ps1           controlled Windows release build
+|   |-- build-local.ps1               local build, no pylon runtime or Inno
 |   |-- PolePosition.spec             PyInstaller specification
 |   |-- PolePosition.iss              Inno Setup installer
 |   `-- installer-assets/             non-model installer data

@@ -21,6 +21,58 @@ The installer contains:
 The installer deliberately contains no `.onnx`, `.pt`, or `.pth` model weight.
 The build fails if one is accidentally collected.
 
+## Local application build without the installer
+
+`packaging\windows\build-local.ps1` produces the same fully bundled
+application as the release build, but stops short of the Inno Setup installer
+and does not need the Basler pylon Runtime Redistributable. Use it to get a
+runnable Windows build on a workstation that has neither.
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\packaging\windows\build-local.ps1 -Clean
+```
+
+or from the source root:
+
+```cmd
+BUILD_WINDOWS_APP.cmd -Clean
+```
+
+The result is `dist\windows-local\Pole-Position-v<version>-win64\`, containing
+`PolePosition.exe` alongside Python, Qt, OpenCV, ONNX Runtime, the pypylon and
+pycomm3 bindings, and the complete PyTorch/Ultralytics training runtime. Add
+`-Archive` for a `.zip` and checksum.
+
+It keeps the release build's guards: the same PyInstaller spec, the ONNX
+test-corpus cleanup, the model-weight check, the dependency inventory, a build
+manifest, and the frozen `--verify-install` self-check.
+
+Useful switches:
+
+| Switch | Effect |
+| --- | --- |
+| `-TorchIndexUrl <url>` | Install a CUDA PyTorch build first, as for the release build |
+| `-RequirementsLock <file>` | Reproduce an earlier build from its lock file |
+| `-RunTests` | Run the full pytest suite before freezing |
+| `-SkipChecks` | Skip the source check and the three graded regressions |
+| `-SkipSelfCheck` | Skip the frozen self-check on a workstation with no pylon runtime installed |
+| `-AllowUnqualifiedPython` | Build on a Python other than the qualified 3.11 x64 |
+| `-Archive` | Also produce the `.zip` and its checksum |
+
+Two things are still not bundled, and neither can be:
+
+- **The Basler pylon Runtime Redistributable.** The pypylon *bindings* are
+  bundled, but a station driving real camera hardware needs Basler's signed
+  driver package installed. The release installer embeds it when supplied.
+- **Production model weights.** Deliberately separate; see `models/README.md`.
+  The build fails if any `.onnx`, `.pt`, or `.pth` appears in the frozen tree.
+
+This build is for local use, commissioning benches, and development. It is not
+the change-controlled release artifact: a station receives the installer
+produced by `build-installer.ps1`, and a build made on an unqualified Python is
+marked as such in its `BUILD-MANIFEST.json`.
+
 ## Build-computer prerequisites
 
 Use the local Windows computer that will be the controlled packaging resource.
