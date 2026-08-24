@@ -19,22 +19,28 @@ from battery_inspector.config import AppConfig
 
 
 BACKUP_SCHEMA_VERSION = 1
-# Derived ML training artifacts, excluded from workstation backups.
+# Derived and transient directories, excluded from workstation backups. All are
+# rebuilt from data the backup does carry.
 #
-# Both are rebuilt from data the backup does carry. The prepared dataset is
-# train/val/test copies of ml_training/samples, which is backed up, so including
-# it stores those images twice. Training runs hold checkpoints and plots from
-# past training; the model a station actually inspects with is the installed
-# package under models/, which is backed up separately. Runs accumulate without
-# any retention sweep, so on a station that has trained a few times they can
-# dominate the archive.
+# The staging directories are the ones that actually grow. Every capture in the
+# recipe wizard or the ML training page writes a full-resolution lossless frame
+# there -- tens of megabytes each -- and accepting one copies it into an
+# immutable recipe revision or the sample store, which is what the station then
+# uses. On a real station these dominated the archive: 1.2 GB of 2.0 GB.
+#
+# The prepared dataset is train/val/test copies of ml_training/samples, which is
+# backed up, so including it stored those images twice. Training runs hold
+# checkpoints and plots; the model a station inspects with is the installed
+# package under models/, backed up separately.
 #
 # The one thing this drops is a candidate that was trained but never installed,
-# since that lives only in a run directory. Install a candidate before relying
-# on a backup to carry it.
+# since that lives only in a run directory, and a capture staged but not yet
+# accepted. Accept or install before relying on a backup to carry either.
 EXCLUDED_DATA_PREFIXES = (
     "ml_training/datasets/",
     "ml_training/runs/",
+    "ml_training/staging/",
+    "recipe_staging/",
 )
 BACKUP_MANIFEST_NAME = "pole_position_backup.json"
 PENDING_RESTORE_NAME = ".pole_position_restore_pending.json"
@@ -284,6 +290,7 @@ def create_station_backup(
                         "ml_training_samples": True,
                         "ml_prepared_datasets": False,
                         "ml_training_runs": False,
+                        "staged_captures": False,
                         "audit_history": True,
                         "retained_failure_evidence": True,
                         "production_pass_history": False,

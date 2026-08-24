@@ -18,6 +18,7 @@ from battery_inspector.activity import ActivityTracker
 from battery_inspector.config import AppConfig, CameraConfig, merge_config
 from battery_inspector.data import RecipeRepository
 from battery_inspector.evidence import (
+    prune_staged_captures,
     FailureRetentionPolicy,
     persist_recipe_reference,
     persist_recipe_validation_records,
@@ -939,6 +940,7 @@ class AppController(QObject):
         # Retention can inspect many evidence files, so run it in the existing
         # startup worker rather than blocking construction of the Qt window.
         self.pipeline.apply_failure_retention()
+        self._prune_staged_captures()
 
         try:
             self._connect_configured_camera()
@@ -1029,6 +1031,31 @@ class AppController(QObject):
             devices,
             self.camera.capabilities,
         )
+
+    def _prune_staged_captures(self) -> None:
+        """Drop abandoned reference captures left in the staging directories.
+
+        Each is a full-resolution lossless frame, tens of megabytes, written on
+        every capture in the recipe wizard and the ML training page. Accepting
+        one copies it into an immutable recipe revision or the sample store, so
+        the staged original is redundant from then on, and an abandoned one is
+        never referenced again. Nothing removed them, so they accumulated for
+        the life of the station.
+        """
+
+        summary = prune_staged_captures(
+            (
+                self.ml_training_store.staging_root,
+                self.data_directory / "recipe_staging",
+            )
+        )
+        if summary["removed_count"]:
+            self._add_event(
+                "SYSTEM",
+                f"Removed {summary['removed_count']} abandoned reference capture(s), "
+                f"reclaiming {summary['reclaimed_bytes'] / 1024 / 1024:.1f} MB",
+                details=summary,
+            )
 
     def _connect_configured_camera(self) -> None:
         """Connect without binding the station to a model or serial number."""

@@ -426,6 +426,10 @@ def _station_with_training_artifacts(root: Path) -> tuple[Path, Path]:
         # Dropped: checkpoints and plots from past training.
         "ml_training/runs/run_0/training_runs/weights/best.pt": b"weights" * 512,
         "ml_training/runs/run_0/polarity_classifier.onnx": b"candidate",
+        # Dropped: full-resolution captures not yet accepted anywhere. On a real
+        # station these were the single largest thing in the archive.
+        "ml_training/staging/reference-abc.png": b"staged" * 4096,
+        "recipe_staging/reference-def.png": b"staged" * 4096,
         # Kept: the installed package a station actually inspects with.
         "models/polarity/v1/polarity_classifier.onnx": b"installed",
     }
@@ -449,6 +453,8 @@ def test_backup_excludes_prepared_datasets_and_training_runs(tmp_path: Path) -> 
 
     assert not [name for name in names if "/ml_training/datasets/" in name]
     assert not [name for name in names if "/ml_training/runs/" in name]
+    assert not [name for name in names if "/ml_training/staging/" in name]
+    assert not [name for name in names if "/recipe_staging/" in name]
 
 
 def test_backup_still_carries_what_a_replacement_station_needs(tmp_path: Path) -> None:
@@ -485,9 +491,12 @@ def test_backup_manifest_states_what_it_dropped(tmp_path: Path) -> None:
     assert manifest["contents"]["ml_training_samples"] is True
     assert manifest["contents"]["ml_prepared_datasets"] is False
     assert manifest["contents"]["ml_training_runs"] is False
+    assert manifest["contents"]["staged_captures"] is False
     assert sorted(manifest["excluded_data_prefixes"]) == [
         "ml_training/datasets/",
         "ml_training/runs/",
+        "ml_training/staging/",
+        "recipe_staging/",
     ]
     # The schema is unchanged, so backups written before this still restore.
     assert manifest["schema_version"] == 1
@@ -512,6 +521,8 @@ def test_a_restore_of_a_lean_backup_round_trips(tmp_path: Path) -> None:
     assert (restored / "models" / "polarity" / "v1" / "polarity_classifier.onnx").is_file()
     assert not (restored / "ml_training" / "runs").exists()
     assert not (restored / "ml_training" / "datasets").exists()
+    assert not (restored / "ml_training" / "staging").exists()
+    assert not (restored / "recipe_staging").exists()
 
 
 # --- a failed restore must not trap the station -----------------------------

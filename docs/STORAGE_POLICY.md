@@ -42,6 +42,18 @@ It does not traverse or delete validation captures, immutable recipe references,
 validation templates, ML training samples, installed models, configuration, or
 audit configuration.
 
+## Staged reference captures
+
+Taking a reference capture in the recipe wizard or the ML training page writes a
+full-resolution lossless frame to `recipe_staging/` or `ml_training/staging/`.
+Accepting it copies the image into an immutable recipe revision or the sample
+store, and the station uses that copy from then on; the staged original is
+redundant, and an abandoned capture is never referenced again.
+
+Staged captures older than seven days are removed at startup, and the reclaimed
+space is recorded as a SYSTEM event. They are also excluded from workstation
+backups. Nothing else in those directories is touched.
+
 ## Upgrade behavior
 
 At v0.18 startup, legacy production PASS evidence directories, PASS inspection

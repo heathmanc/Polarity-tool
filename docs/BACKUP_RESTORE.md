@@ -24,16 +24,25 @@ backup does carry and together they can dominate the archive:
 
 | Excluded | Rebuilt from |
 | --- | --- |
+| `ml_training/staging/` | Captures taken in the ML training page but not yet accepted. Accepting one copies it into the sample store, which is included. |
+| `recipe_staging/` | Captures taken in the recipe wizard but not yet accepted. Accepting one copies it into an immutable recipe revision, which is included. |
 | `ml_training/datasets/` | The prepared train/val/test split is copies of `ml_training/samples/`, which is included. Re-prepare it in the training wizard. |
 | `ml_training/runs/` | Checkpoints and plots from past training. The model a station inspects with is the installed package under `models/`, which is included. |
 
-The one thing this drops is a candidate that was trained but never installed,
-because that exists only in a run directory. **Install a candidate before
-relying on a backup to carry it.**
+The staging directories are usually the largest of these by a wide margin. A
+staged capture is a full-resolution lossless frame, tens of megabytes, written
+every time a technician takes one; on one station 104 of them reached 1.2 GB of
+a 2.0 GB backup.
 
-Excluding them from the backup does not reclaim station disk. `ml_training/runs/`
-has no retention sweep, so it grows with every training run; delete run
-directories on the station once their candidate is installed or superseded.
+What this drops is a capture staged but never accepted, and a candidate trained
+but never installed, since each exists only in those directories. **Accept a
+capture and install a candidate before relying on a backup to carry either.**
+
+Pole Position now removes staged captures older than seven days at startup and
+records what it reclaimed in the event log, so the station stops accumulating
+them. The window is far longer than any wizard session, so a capture you are
+working on is never at risk. `ml_training/runs/` still has no sweep; delete run
+directories once their candidate is installed or superseded.
 
 To see the breakdown of an existing backup, including one written before this
 exclusion existed:

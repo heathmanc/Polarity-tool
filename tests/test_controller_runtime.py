@@ -376,3 +376,48 @@ def test_shutdown_stops_the_plc_timers(controller) -> None:
 
     assert controller.plc_poll_timer.isActive() is False
     assert controller.plc_heartbeat_timer.isActive() is False
+
+
+# --- staged captures are swept at startup -----------------------------------
+
+
+def test_startup_removes_abandoned_staged_captures(qapp, controller, monkeypatch) -> None:
+    """The station must not accumulate reference captures for its whole life."""
+
+    import os
+    from datetime import timedelta
+
+    staging = controller.ml_training_store.staging_root
+    recipe_staging = controller.data_directory / "recipe_staging"
+    for directory in (staging, recipe_staging):
+        directory.mkdir(parents=True, exist_ok=True)
+        stale = directory / "reference-abandoned.png"
+        stale.write_bytes(b"x" * 4096)
+        when = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
+        os.utime(stale, (when, when))
+
+    controller.initialize()
+    drain(qapp)
+
+    assert not (staging / "reference-abandoned.png").exists()
+    assert not (recipe_staging / "reference-abandoned.png").exists()
+
+
+def test_startup_keeps_a_recent_staged_capture(qapp, controller) -> None:
+    staging = controller.ml_training_store.staging_root
+    staging.mkdir(parents=True, exist_ok=True)
+    current = staging / "reference-in-progress.png"
+    current.write_bytes(b"x" * 4096)
+
+    controller.initialize()
+    drain(qapp)
+
+    assert current.exists()
+
+
+def test_a_sweep_that_removes_nothing_is_not_announced(qapp, controller) -> None:
+    controller.initialize()
+    drain(qapp)
+
+    messages = [event["message"] for event in controller.audit_events()]
+    assert not [m for m in messages if "abandoned reference capture" in m]

@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 from uuid import uuid4
 
 import cv2
@@ -408,6 +408,65 @@ def reference_capture_from_file(
         camera_profile=dict(camera_profile or {}),
         quality=assess_image_quality(image),
     )
+
+
+# Staged reference captures are full-resolution lossless frames, tens of MB
+# each, written every time a technician takes a capture in the recipe wizard or
+# the ML training page. Accepting one copies it into an immutable recipe
+# revision or the sample store, which is what the station then uses, so the
+# staged original is dead weight from that moment. Nothing removed them, so a
+# station accumulated one per capture indefinitely.
+#
+# The sweep is age-based rather than tied to acceptance: a capture can be
+# abandoned by closing the wizard, and no bookkeeping records that. The window
+# is far longer than any wizard session, so an in-progress capture is never at
+# risk.
+STAGED_CAPTURE_MAX_AGE_DAYS = 7
+STAGED_CAPTURE_PATTERN = "reference-*.png"
+
+
+def prune_staged_captures(
+    staging_directories: Iterable[Path],
+    *,
+    max_age_days: int = STAGED_CAPTURE_MAX_AGE_DAYS,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Remove staged reference captures older than the retention window.
+
+    Only files this application named are considered, so anything else in those
+    directories is left alone. Failures are counted rather than raised: losing
+    scratch space must never stop a station from starting.
+    """
+
+    moment = now or datetime.now(timezone.utc)
+    cutoff = moment - timedelta(days=max(0, int(max_age_days)))
+    removed: list[str] = []
+    reclaimed = 0
+    failed = 0
+    for directory in staging_directories:
+        directory = Path(directory)
+        if not directory.is_dir():
+            continue
+        for candidate in directory.glob(STAGED_CAPTURE_PATTERN):
+            if not candidate.is_file():
+                continue
+            try:
+                stat = candidate.stat()
+                modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+                if modified > cutoff:
+                    continue
+                size = stat.st_size
+                candidate.unlink()
+            except OSError:
+                failed += 1
+                continue
+            removed.append(candidate.name)
+            reclaimed += size
+    return {
+        "removed_count": len(removed),
+        "reclaimed_bytes": reclaimed,
+        "failed_count": failed,
+    }
 
 
 def stage_reference_capture(
