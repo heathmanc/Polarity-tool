@@ -752,3 +752,73 @@ def test_a_rollback_backup_failure_does_not_leave_the_station_retrying(
     # And the operator can import again rather than being told one is pending.
     monkeypatch.undo()
     assert stage_station_restore(target_root, backup)["restart_required"] is True
+
+
+# --- transient Windows file locks must not fail a backup --------------------
+
+
+def test_a_momentary_lock_on_the_snapshot_is_retried(tmp_path: Path, monkeypatch) -> None:
+    """An antivirus scanning the fresh database holds it for a moment.
+
+    That lock is what produces "[WinError 32] The process cannot access the
+    file", and it can strike while the snapshot is being read into the archive
+    -- a point no amount of cleanup tolerance covers, because the failure is the
+    read itself.
+    """
+
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _source_station(root)
+    backup = tmp_path / "backup.zip"
+
+    real_open = Path.open
+    attempts = {"count": 0}
+
+    def flaky_open(self, *args, **kwargs):
+        if self.name == "battery_inspector.db" and attempts["count"] < 2:
+            attempts["count"] += 1
+            raise PermissionError(
+                32,
+                "The process cannot access the file because it is being used by another process",
+            )
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", flaky_open)
+    monkeypatch.setattr(station_transfer, "SHARING_VIOLATION_BACKOFF_SECONDS", 0.0)
+
+    created = create_station_backup(root, config_path, data, backup)
+
+    assert attempts["count"] == 2, "the lock should have been hit and retried"
+    assert backup.is_file()
+    with zipfile.ZipFile(backup) as archive:
+        assert "runtime/battery_inspector.db" in set(archive.namelist())
+        assert archive.testzip() is None
+    assert created["file_count"] >= 6
+
+
+def test_a_lock_that_never_clears_explains_itself(tmp_path: Path, monkeypatch) -> None:
+    """The operator needs to know it is antivirus, not corrupt data."""
+
+    root = tmp_path / "station"
+    root.mkdir()
+    config_path, data = _source_station(root)
+
+    real_open = Path.open
+
+    def always_locked(self, *args, **kwargs):
+        if self.name == "battery_inspector.db":
+            raise PermissionError(
+                32,
+                "The process cannot access the file because it is being used by another process",
+            )
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", always_locked)
+    monkeypatch.setattr(station_transfer, "SHARING_VIOLATION_BACKOFF_SECONDS", 0.0)
+
+    with pytest.raises(StationTransferError) as failure:
+        create_station_backup(root, config_path, data, tmp_path / "backup.zip")
+
+    message = str(failure.value)
+    assert "antivirus" in message
+    assert "WinError 32" in message or "cannot access the file" in message

@@ -7,10 +7,12 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import time
 import zipfile
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from collections.abc import Callable
 from typing import Any, BinaryIO, Iterable
 from uuid import uuid4
 
@@ -147,6 +149,39 @@ def _sqlite_snapshot(source: Path, destination: Path) -> None:
         raise StationTransferError("The station database did not pass SQLite quick_check")
 
 
+# Windows refuses access to a file another process holds, and a freshly written
+# database in the user's temp directory is exactly what an antivirus or search
+# indexer opens to scan. The lock is momentary, so a short retry turns a failed
+# backup -- and, during a restore, a failed restore -- into a brief pause.
+#
+# WinError 32 is a sharing violation and 33 is a lock violation; on other
+# platforms PermissionError here means what it says and retrying is harmless
+# because the attempts are few and short.
+SHARING_VIOLATION_ATTEMPTS = 5
+SHARING_VIOLATION_BACKOFF_SECONDS = 0.25
+
+
+def _retry_sharing_violation(operation: Callable[[], Any], description: str) -> Any:
+    """Run an operation, retrying briefly while Windows reports a lock."""
+
+    last: OSError | None = None
+    for attempt in range(SHARING_VIOLATION_ATTEMPTS):
+        try:
+            return operation()
+        except PermissionError as exc:
+            last = exc
+            if attempt + 1 >= SHARING_VIOLATION_ATTEMPTS:
+                break
+            time.sleep(SHARING_VIOLATION_BACKOFF_SECONDS * (attempt + 1))
+    raise StationTransferError(
+        f"{description} was locked by another process and stayed locked after "
+        f"{SHARING_VIOLATION_ATTEMPTS} attempts. An antivirus or backup agent "
+        f"scanning the file is the usual cause; excluding the Pole Position "
+        f"data directory and the temp directory from live scanning resolves it. "
+        f"Underlying error: {last}"
+    ) from last
+
+
 def _write_zip_member(
     archive: zipfile.ZipFile,
     archive_name: str,
@@ -155,9 +190,18 @@ def _write_zip_member(
     archive_name = _safe_archive_path(archive_name)
     digest = hashlib.sha256()
     size = 0
-    info = zipfile.ZipInfo.from_file(source, arcname=archive_name)
+    info = _retry_sharing_violation(
+        lambda: zipfile.ZipInfo.from_file(source, arcname=archive_name),
+        f"Reading {source.name} for the backup",
+    )
     info.compress_type = zipfile.ZIP_DEFLATED
-    with source.open("rb") as input_file, archive.open(info, "w", force_zip64=True) as output:
+    # The source is opened before the archive member so a lock cannot leave a
+    # half-written entry behind.
+    input_file = _retry_sharing_violation(
+        lambda: source.open("rb"),
+        f"Opening {source.name} for the backup",
+    )
+    with input_file, archive.open(info, "w", force_zip64=True) as output:
         while True:
             chunk = input_file.read(1024 * 1024)
             if not chunk:
@@ -187,9 +231,13 @@ def create_station_backup(
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary_zip = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
 
+    config_text = _retry_sharing_violation(
+        lambda: config_path.read_text(encoding="utf-8"),
+        f"Reading {config_path.name}",
+    )
     try:
-        config_payload = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        config_payload = json.loads(config_text)
+    except json.JSONDecodeError as exc:
         raise StationTransferError(f"Station configuration is not valid JSON: {exc}") from exc
     if not isinstance(config_payload, dict):
         raise StationTransferError("Station configuration must contain a JSON object")
