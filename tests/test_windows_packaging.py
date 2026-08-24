@@ -267,3 +267,27 @@ def test_local_build_does_not_claim_to_replace_the_release_path() -> None:
     script = LOCAL_BUILD.read_text(encoding="utf-8")
     assert "build-installer.ps1" in script
     assert "installer_built = $false" in script
+
+
+def test_every_script_importing_the_package_bootstraps_sys_path() -> None:
+    """`python scripts\\x.py` must work from a plain checkout.
+
+    Scripts are run by path, not as modules, so the repository root is not on
+    sys.path unless the script puts it there. Every script that imports
+    battery_inspector without doing so fails with ModuleNotFoundError for
+    whoever runs it -- which is how clear_pending_restore.py first shipped.
+    """
+
+    offenders = []
+    for script in sorted((ROOT / "scripts").glob("*.py")):
+        source = script.read_text(encoding="utf-8")
+        imports_package = re.search(
+            r"^\s*(from|import)\s+battery_inspector", source, re.MULTILINE
+        )
+        if imports_package and "sys.path.insert" not in source:
+            offenders.append(script.name)
+
+    assert offenders == [], (
+        f"these scripts import battery_inspector without putting the repository "
+        f"root on sys.path: {offenders}"
+    )

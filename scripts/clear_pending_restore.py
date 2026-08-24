@@ -19,6 +19,12 @@ Then clear it:
 Clearing removes only the pending flag and the staged copy it points at. The
 station's own data -- recipes, models, evidence, configuration -- is untouched,
 and a failed restore never modified it in the first place.
+
+This tool deliberately imports nothing from battery_inspector and uses only the
+standard library. It has to run on a station that is broken, possibly without a
+source checkout or a working environment, so it must not depend on the
+application being importable. The file names below are duplicated from the
+application for that reason; tests assert they still match.
 """
 
 from __future__ import annotations
@@ -29,13 +35,18 @@ import os
 import shutil
 from pathlib import Path
 
-from battery_inspector.paths import STATION_DIRECTORY_NAME, station_root
-from battery_inspector.station_transfer import (
-    PENDING_RESTORE_NAME,
-    RESTORE_RESULT_NAME,
-    RESTORE_STAGING_DIRECTORY,
-    ROLLBACK_DIRECTORY,
-)
+STATION_DIRECTORY_NAME = "Pole Position"
+PENDING_RESTORE_NAME = ".pole_position_restore_pending.json"
+RESTORE_RESULT_NAME = ".pole_position_restore_result.json"
+RESTORE_STAGING_DIRECTORY = ".pole_position_restore_staging"
+ROLLBACK_DIRECTORY = "restore_rollback"
+
+
+def source_checkout_station_root() -> Path | None:
+    """The station root a source checkout uses: the repository root itself."""
+
+    root = Path(__file__).resolve().parents[1]
+    return root if (root / "battery_inspector").is_dir() else None
 
 
 def candidate_station_roots(explicit: Path | None) -> list[Path]:
@@ -54,9 +65,12 @@ def candidate_station_roots(explicit: Path | None) -> list[Path]:
     program_data = str(os.environ.get("PROGRAMDATA", "") or "").strip()
     if program_data:
         candidates.append(Path(program_data) / STATION_DIRECTORY_NAME)
+    else:
+        candidates.append(Path.home() / "AppData" / "Local" / STATION_DIRECTORY_NAME)
 
-    # A source checkout keeps station data beside the code.
-    candidates.append(station_root(create=False))
+    checkout = source_checkout_station_root()
+    if checkout is not None:
+        candidates.append(checkout)
 
     unique: list[Path] = []
     for candidate in candidates:
@@ -80,9 +94,8 @@ def human(size: float) -> str:
 def describe(root: Path) -> dict[str, object]:
     marker = root / PENDING_RESTORE_NAME
     staging_root = root / RESTORE_STAGING_DIRECTORY
-    rollbacks = sorted((root / ROLLBACK_DIRECTORY).glob("*.zip")) if (
-        root / ROLLBACK_DIRECTORY
-    ).is_dir() else []
+    rollback_root = root / ROLLBACK_DIRECTORY
+    rollbacks = sorted(rollback_root.glob("*.zip")) if rollback_root.is_dir() else []
     result_path = root / RESTORE_RESULT_NAME
     last_result: dict[str, object] = {}
     if result_path.is_file():
@@ -144,8 +157,7 @@ def main() -> int:
 
         last_result = state["last_result"]
         if last_result:
-            status = last_result.get("status", "")
-            print(f"          Last restore result: {status}")
+            print(f"          Last restore result: {last_result.get('status', '')}")
             if last_result.get("error"):
                 print(f"          Reported error     : {last_result['error']}")
 

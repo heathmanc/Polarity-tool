@@ -134,3 +134,61 @@ def test_an_installed_station_is_found_through_programdata(
     assert code == 1
     assert "PENDING IMPORT FLAG" in output
     assert str(renamed) in output
+
+
+# --- the tool must keep working on a broken station -------------------------
+
+
+def test_the_tool_needs_nothing_from_the_application(tmp_path: Path) -> None:
+    """It runs where the package is not importable, which is the point.
+
+    A stuck station may have no source checkout and no working environment. The
+    first version imported battery_inspector and died with ModuleNotFoundError
+    for exactly the operator who needed it.
+    """
+
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, str(TOOL), "--station", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        # An empty path plus a working directory outside the repository means
+        # battery_inspector cannot be imported by any means.
+        cwd=str(tmp_path),
+        env={
+            **{k: v for k, v in __import__("os").environ.items() if k != "PYTHONPATH"},
+            "PYTHONPATH": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+    assert "Nothing to clear" in result.stdout
+
+
+def test_the_duplicated_constants_still_match_the_application() -> None:
+    """The tool copies these names precisely so it can stand alone."""
+
+    import ast
+
+    from battery_inspector import paths, station_transfer
+
+    # Read the constants from the source rather than importing the tool: an
+    # import can serve a stale .pyc, and two spellings of the same length do not
+    # always invalidate that cache.
+    tree = ast.parse(TOOL.read_text(encoding="utf-8"))
+    declared = {
+        target.id: statement.value.value
+        for statement in tree.body
+        if isinstance(statement, ast.Assign)
+        and isinstance(statement.value, ast.Constant)
+        for target in statement.targets
+        if isinstance(target, ast.Name)
+    }
+
+    assert declared["STATION_DIRECTORY_NAME"] == paths.STATION_DIRECTORY_NAME
+    assert declared["PENDING_RESTORE_NAME"] == station_transfer.PENDING_RESTORE_NAME
+    assert declared["RESTORE_RESULT_NAME"] == station_transfer.RESTORE_RESULT_NAME
+    assert declared["RESTORE_STAGING_DIRECTORY"] == station_transfer.RESTORE_STAGING_DIRECTORY
+    assert declared["ROLLBACK_DIRECTORY"] == station_transfer.ROLLBACK_DIRECTORY
