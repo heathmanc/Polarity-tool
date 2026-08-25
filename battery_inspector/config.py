@@ -35,6 +35,11 @@ class PlcTagMap:
     recipe_name: str = "BatteryVision.RecipeName"
     heartbeat: str = "BatteryVision.Heartbeat"
     bypass: str = "BatteryVision.Bypass"
+    # Blank by default, and blank means the handshake is off. A station that
+    # was commissioned before the acknowledge tag existed keeps its latched
+    # result behaviour exactly, and adding the tag is a deliberate act on a
+    # controller whose program is ready to drive it.
+    acknowledge: str = ""
 
 
 @dataclass(slots=True)

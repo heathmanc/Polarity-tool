@@ -249,6 +249,133 @@ def test_a_manual_cycle_leaves_the_plc_result_untouched(qapp, station_controller
     assert station_controller.plc.last_result == {}
 
 
+# --- the acknowledge handshake ---------------------------------------------
+#
+# Without an acknowledge tag the published result stays on the tags until the
+# next cycle raises Busy, so the PLC has to treat Complete as the validity of
+# whatever it last read. With one, the controller says it has taken the result
+# and the station clears the row, which lets the PLC treat Complete as a
+# one-shot. The tag is blank by default, so a station commissioned before it
+# existed behaves exactly as it did.
+
+
+def _acknowledging(controller):
+    """Configure the handshake the way a commissioned station would."""
+
+    controller.config.tags.acknowledge = "BatteryVision.Ack"
+    return controller
+
+
+def _poll(qapp, controller) -> None:
+    """One PLC poll, the way the timer drives it."""
+
+    controller._handle_plc_state(controller.plc.read_cycle_state())
+    drain(qapp)
+
+
+def test_without_an_acknowledge_tag_the_result_stays_latched(qapp, station_controller) -> None:
+    """The behaviour every station commissioned before v0.25.0 relies on."""
+
+    assert station_controller.config.tags.acknowledge == ""
+
+    _run(qapp, station_controller, "PLC")
+    published = dict(station_controller.plc.last_result)
+    assert published["complete"] is True
+
+    station_controller.plc.set_acknowledge(True)
+    _poll(qapp, station_controller)
+
+    assert station_controller.plc.last_result == published
+
+
+def test_an_acknowledge_clears_the_published_result(qapp, station_controller) -> None:
+    _acknowledging(station_controller)
+    _expect_pass(station_controller)
+    _run(qapp, station_controller, "PLC")
+    assert station_controller.plc.last_result["complete"] is True
+    assert station_controller.plc.last_result["passed"] is True
+
+    station_controller.plc.set_acknowledge(True)
+    _poll(qapp, station_controller)
+
+    assert station_controller.plc.last_result == {}
+
+
+def test_a_rejected_result_is_cleared_by_the_same_handshake(qapp, station_controller) -> None:
+    _acknowledging(station_controller)
+    _run(qapp, station_controller, "PLC")
+    assert station_controller.plc.last_result["fail"] is True
+
+    station_controller.plc.set_acknowledge(True)
+    _poll(qapp, station_controller)
+
+    assert station_controller.plc.last_result == {}
+
+
+def test_an_acknowledge_that_never_falls_cannot_clear_the_next_result(
+    qapp, station_controller
+) -> None:
+    """A stopped or faulted controller must not erase results it never read.
+
+    An acknowledge bit stuck high would otherwise clear each new result the
+    instant it was published, and the PLC would see nothing at all -- a station
+    that appears to be running and is publishing to nobody.
+    """
+
+    _acknowledging(station_controller)
+    _run(qapp, station_controller, "PLC")
+    station_controller.plc.set_acknowledge(True)
+    _poll(qapp, station_controller)
+    assert station_controller.plc.last_result == {}
+
+    # The controller never drops the bit, and a second cycle runs.
+    _run(qapp, station_controller, "PLC")
+    _poll(qapp, station_controller)
+
+    assert station_controller.plc.last_result["complete"] is True
+
+
+def test_the_handshake_rearms_once_the_acknowledge_falls(qapp, station_controller) -> None:
+    _acknowledging(station_controller)
+    _run(qapp, station_controller, "PLC")
+    station_controller.plc.set_acknowledge(True)
+    _poll(qapp, station_controller)
+
+    station_controller.plc.set_acknowledge(False)
+    _poll(qapp, station_controller)
+    _run(qapp, station_controller, "PLC")
+    station_controller.plc.set_acknowledge(True)
+    _poll(qapp, station_controller)
+
+    assert station_controller.plc.last_result == {}
+
+
+def test_an_acknowledge_alone_never_publishes_a_result(qapp, station_controller) -> None:
+    """Acknowledgement can only clear. It can never set Pass."""
+
+    _acknowledging(station_controller)
+    station_controller.plc.set_acknowledge(True)
+    _poll(qapp, station_controller)
+
+    assert station_controller.plc.last_result == {}
+
+
+def test_triggering_before_acknowledging_is_recorded(qapp, station_controller) -> None:
+    """A result the controller never took is worth an audit line, not silence."""
+
+    _acknowledging(station_controller)
+    _run(qapp, station_controller, "PLC")
+
+    station_controller.plc.pulse_trigger()
+    _poll(qapp, station_controller)
+
+    messages = [
+        str(event.get("message", ""))
+        for event in station_controller.repository.list_audit_events(limit=50)
+    ]
+    assert any("before acknowledging the previous result" in message for message in messages)
+
+
 # --- acquisition faults ----------------------------------------------------
 
 

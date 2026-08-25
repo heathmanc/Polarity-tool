@@ -1,7 +1,7 @@
-# v0.24.0 station commissioning checklist
+# v0.25.0 station commissioning checklist
 
 This is the full commissioning sequence for a Pole Position station running
-v0.24.0, from a bare workstation to a station cleared for production. It
+v0.25.0, from a bare workstation to a station cleared for production. It
 replaces the piecemeal checklists in `COMMISSIONING_v0.7.0.md` through
 `COMMISSIONING_v0.10.0.md`, which covered single features as they were added.
 
@@ -17,7 +17,7 @@ software, not about this station.
 
 Have all of the following in hand:
 
-- [ ] The `Pole-Position-v0.24.0-Setup-x64.exe` installer and its `.sha256`
+- [ ] The `Pole-Position-v0.25.0-Setup-x64.exe` installer and its `.sha256`
 - [ ] The requirements lock produced by the same build
 - [ ] The exact Basler pylon Runtime Redistributable used to build it
 - [ ] The qualified production ONNX model and its JSON manifest
@@ -34,8 +34,8 @@ sections 7 onward cannot.
 ## 1. Verify the installer before running it
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\Pole-Position-v0.24.0-Setup-x64.exe
-Get-Content .\Pole-Position-v0.24.0-Setup-x64.exe.sha256
+Get-FileHash -Algorithm SHA256 .\Pole-Position-v0.25.0-Setup-x64.exe
+Get-Content .\Pole-Position-v0.25.0-Setup-x64.exe.sha256
 ```
 
 The two must match. If they do not, stop: the installer is not the artifact that
@@ -51,7 +51,7 @@ and must be recorded in the station handoff record, not clicked past silently.
 
 - [ ] Windows 10 22H2 or Windows 11, x64
 - [ ] The station display set to a scale factor that leaves at least a
-      1280x800 workspace. v0.24.0 scrolls a page that does not fit rather than
+      1280x800 workspace. v0.25.0 scrolls a page that does not fit rather than
       overlapping it, but a station screen should not need to scroll.
 - [ ] Windows Defender exclusions for the Pole Position program directory and
       `C:\ProgramData\Pole Position`. Real-time scanning has been observed to
@@ -121,6 +121,14 @@ in the operator manual for this version.
 - [ ] Heartbeat observed at both ends
 - [ ] A trigger from the PLC produces exactly one inspection
 - [ ] Pass and Fail arrive at the PLC as the binary result the program expects
+- [ ] Result lifetime decided deliberately: the acknowledge tag is either left
+      blank, so results stay latched until the next cycle, or configured against
+      a program that raises the bit after consuming a result
+- [ ] With the acknowledge tag configured: raising the bit clears Busy,
+      Complete, Pass, and Fail together
+- [ ] With the acknowledge tag configured: holding the bit high does not clear
+      the next cycle's result. A stopped controller must not erase results it
+      never read
 - [ ] Recipe selection by number selects the recipe the PLC intends
 - [ ] A recipe number the station does not have is logged and refused, and the
       PLC sees no result rather than a pass
@@ -157,11 +165,11 @@ python scripts\diagnose_station.py --station "C:\ProgramData\Pole Position"
 - [ ] The red-ring flag printed for each terminal matches the part
 - [ ] The expected finish printed for each terminal matches the part
 
-**This confirmation is mandatory for v0.24.0.** Builds before v0.24.0 could
+**This confirmation is mandatory for v0.25.0.** Builds before v0.25.0 could
 clear a terminal's red-ring requirement when a recipe was reopened for edit. A
 cleared requirement does not appear anywhere on the inspection screen and
 produces a pass on a part that should reject. Any recipe revision created or
-edited before v0.24.0 must be checked this way, and a recipe with a cleared
+edited before v0.25.0 must be checked this way, and a recipe with a cleared
 requirement must be corrected in a new revision and revalidated.
 
 ---
@@ -199,7 +207,7 @@ the result and the evidence reference:
 - [ ] A part removed mid-cycle does not pass
 - [ ] Covering the lens does not produce a pass
 
-Every reject must name the correct terminal. In v0.24.0 the terminal that caused
+Every reject must name the correct terminal. In v0.25.0 the terminal that caused
 a reject is drawn in red at heavier weight on the operator view; confirm the
 terminal it marks is the terminal actually at fault.
 

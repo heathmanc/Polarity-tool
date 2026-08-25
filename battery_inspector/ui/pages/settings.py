@@ -738,7 +738,10 @@ class SettingsPage(QWidget):
         tag_title.setObjectName("PanelTitle")
         tag_layout.addWidget(tag_title)
         tag_note = QLabel(
-            "These fields are used only in pycomm3 mode. Simulation uses the same logical handshake internally."
+            "These fields are used only in pycomm3 mode. Simulation uses the same logical handshake internally. "
+            "Set the acknowledge tag only when the PLC program raises it after reading a result; "
+            "the station then clears Busy, Complete, Pass, and Fail together. Left blank, a result "
+            "stays on the tags until the next cycle starts."
         )
         tag_note.setWordWrap(True)
         tag_note.setProperty("muted", True)
@@ -769,13 +772,16 @@ class SettingsPage(QWidget):
         split = (len(fields) + 1) // 2
         for index, field_name in enumerate(fields):
             edit = QLineEdit(getattr(self.controller.config.tags, field_name))
+            if field_name == "acknowledge":
+                # Blank is a working configuration, not an unfinished one, so
+                # the field says what blank does rather than looking unset.
+                edit.setPlaceholderText("Blank — results stay latched until the next cycle")
             self.tag_edits[field_name] = edit
             target = left_form if index < split else right_form
-            label = (
-                "Recipe selector tag"
-                if field_name == "recipe_name"
-                else field_name.replace("_", " ").title()
-            )
+            label = {
+                "recipe_name": "Recipe selector tag",
+                "acknowledge": "Acknowledge tag (optional)",
+            }.get(field_name, field_name.replace("_", " ").title())
             target.addRow(label, edit)
         tag_columns.addLayout(left_form, 1)
         tag_columns.addSpacing(24)

@@ -495,7 +495,7 @@ footer {
   <h1>Pole Position</h1>
   <p class="standfirst">How to run this station, wire it to the PLC, teach it a new battery, and train the model that reads the terminal stamps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.24.0</dd></div>
+    <div><dt>Applies to</dt><dd>v0.25.0</dd></div>
     <div><dt>Document</dt><dd>Rev A</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Replaces</dt><dd>Nothing</dd></div>
@@ -693,6 +693,7 @@ footer {
         <tr><td>Requested recipe</td><td><code>BatteryVision.RecipeName</code></td><td>STRING, or SINT/INT/DINT</td><td>PLC &rarr; HMI</td></tr>
         <tr><td>HMI heartbeat</td><td><code>BatteryVision.Heartbeat</code></td><td>BOOL</td><td>HMI &rarr; PLC</td></tr>
         <tr><td>Bypass request</td><td><code>BatteryVision.Bypass</code></td><td>BOOL</td><td>HMI &rarr; PLC, read back</td></tr>
+        <tr><td>Result acknowledge <em>(optional)</em></td><td>blank by default</td><td>BOOL</td><td>PLC &rarr; HMI</td></tr>
       </tbody>
     </table>
   </div>
@@ -705,42 +706,45 @@ footer {
   </div>
 
   <h3 id="plc-sequence">Cycle sequencing</h3>
-  <p>One inspection runs like this. The station owns the three output bits; the PLC owns the trigger.</p>
+  <p>One inspection runs like this. The station owns the three output bits; the controller owns the trigger and the acknowledge.</p>
 
   <div class="diagram">
-    <svg viewBox="0 0 720 300" role="img" aria-labelledby="timing-title timing-desc">
-      <title id="timing-title">Inspection cycle timing</title>
-      <desc id="timing-desc">Trigger rises and the station raises Busy. Busy stays high for the inspection. When the inspection finishes, Busy falls and Complete rises together with exactly one of Pass or Fail, and those stay latched until the next trigger edge is accepted and Busy rises again.</desc>
+    <svg viewBox="0 0 720 358" role="img" aria-labelledby="timing-title timing-desc">
+      <title id="timing-title">Inspection cycle timing with the acknowledge handshake</title>
+      <desc id="timing-desc">Trigger rises and the station raises Busy. Busy stays high for the inspection. When the inspection finishes, Busy falls and Complete rises together with exactly one of Pass or Fail. The controller raises Acknowledge once it has taken the result, the station clears Busy, Complete, Pass and Fail together, and the controller then drops Acknowledge ready for the next cycle.</desc>
 
-      <line class="gridline" x1="150" y1="26" x2="150" y2="268"></line>
-      <line class="gridline" x1="300" y1="26" x2="300" y2="268"></line>
-      <line class="gridline" x1="470" y1="26" x2="470" y2="268"></line>
-      <line class="gridline" x1="620" y1="26" x2="620" y2="268"></line>
+      <line class="gridline" x1="150" y1="26" x2="150" y2="326"></line>
+      <line class="gridline" x1="300" y1="26" x2="300" y2="326"></line>
+      <line class="gridline" x1="470" y1="26" x2="470" y2="326"></line>
+      <line class="gridline" x1="560" y1="26" x2="560" y2="326"></line>
 
       <text class="stage" x="150" y="18">Rising edge</text>
       <text class="stage" x="300" y="18">Grading</text>
-      <text class="stage" x="470" y="18">Result latched</text>
-      <text class="stage" x="620" y="18">Next cycle</text>
+      <text class="stage" x="470" y="18">Result</text>
+      <text class="stage" x="562" y="18">Acknowledged</text>
 
       <text class="sig" x="8" y="52">Trigger</text>
-      <path class="wire wire-in" d="M96 60 L150 60 L150 34 L240 34 L240 60 L598 60 L598 34 L688 34 L688 60 L704 60"></path>
+      <path class="wire wire-in" d="M96 60 L150 60 L150 34 L240 34 L240 60 L704 60"></path>
 
       <text class="sig" x="8" y="110">Busy</text>
-      <path class="wire wire-out" d="M96 118 L152 118 L152 92 L470 92 L470 118 L620 118 L620 92 L704 92"></path>
+      <path class="wire wire-out" d="M96 118 L152 118 L152 92 L470 92 L470 118 L704 118"></path>
 
       <text class="sig" x="8" y="168">Complete</text>
-      <path class="wire wire-out" d="M96 176 L470 176 L470 150 L620 150 L620 176 L704 176"></path>
+      <path class="wire wire-out" d="M96 176 L470 176 L470 150 L580 150 L580 176 L704 176"></path>
 
       <text class="sig" x="8" y="226">Pass</text>
-      <path class="wire wire-pass" d="M96 234 L470 234 L470 208 L620 208 L620 234 L704 234"></path>
+      <path class="wire wire-pass" d="M96 234 L470 234 L470 208 L580 208 L580 234 L704 234"></path>
 
       <text class="sig" x="8" y="284">Fail</text>
       <path class="wire wire-fail" d="M96 292 L704 292"></path>
 
-      <line class="axis" x1="96" y1="26" x2="96" y2="296"></line>
+      <text class="sig" x="8" y="342">Ack</text>
+      <path class="wire wire-in" d="M96 350 L560 350 L560 324 L640 324 L640 350 L704 350"></path>
+
+      <line class="axis" x1="96" y1="26" x2="96" y2="354"></line>
     </svg>
   </div>
-  <figcaption><b>Figure</b><span>A passing cycle. A rejecting cycle is identical except that <code>Fail</code> rises instead of <code>Pass</code>. Exactly one of the two is ever high while <code>Complete</code> is high.</span></figcaption>
+  <figcaption><b>Figure</b><span>A passing cycle with the acknowledge tag configured. A rejecting cycle is identical except that <code>Fail</code> rises instead of <code>Pass</code>; exactly one of the two is ever high while <code>Complete</code> is high. With the acknowledge tag left blank, the result stays latched from <code>Result</code> onward until the next cycle raises <code>Busy</code>.</span></figcaption>
 
   <h4>Step by step</h4>
   <ol>
@@ -749,8 +753,54 @@ footer {
     <li>The station takes a fresh picture and grades it. <code>Busy</code> stays high for the whole time.</li>
     <li>The station drops <code>Busy</code>, raises <code>Complete</code>, and raises exactly one of <code>Pass</code> or <code>Fail</code>.</li>
     <li>The PLC reads the result while <code>Complete</code> is high, and drops <code>Trigger</code>.</li>
-    <li>The result stays latched until the next accepted cycle raises <code>Busy</code>.</li>
+    <li>The PLC raises <code>Ack</code> once it has taken the result. The station clears <code>Busy</code>, <code>Complete</code>, <code>Pass</code>, and <code>Fail</code> together, and the PLC drops <code>Ack</code>.</li>
   </ol>
+
+  <h4>Result lifetime, with and without the acknowledge tag</h4>
+  <p>The acknowledge tag is optional and blank by default. What it changes is how long a result stays on the tags.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Acknowledge tag</th><th>How long the result stays</th><th>What the PLC must do</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Blank</strong><br>(default)</td>
+          <td>Until the next accepted cycle raises <code>Busy</code>.</td>
+          <td>Treat <code>Complete</code> as the validity of the result it last read. Do not wait for the station to clear it.</td>
+        </tr>
+        <tr>
+          <td><strong>Configured</strong></td>
+          <td>Until the acknowledge bit rises. The station then writes the idle row.</td>
+          <td>Raise the bit after taking the result, and drop it when <code>Complete</code> goes low. <code>Complete</code> is then a one-shot per cycle.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>A station commissioned before the acknowledge tag existed keeps working unchanged, because a blank tag is the old behaviour exactly.</p>
+
+  <pre><code>IF BatteryVision.Complete AND NOT Result_Consumed THEN
+    // latch Pass/Fail into the product record here
+    Result_Consumed := TRUE;
+    BatteryVision.Ack := TRUE;
+END_IF;
+
+IF NOT BatteryVision.Complete THEN
+    BatteryVision.Ack := FALSE;
+    Result_Consumed := FALSE;
+END_IF;</code></pre>
+
+  <p>Dropping the bit when <code>Complete</code> goes low, rather than on a timer, is what rearms the handshake for the next cycle.</p>
+
+  <div class="note care">
+    <span class="tag">Four rules that make the handshake safe</span>
+    <ul>
+      <li>The station acts on a <strong>rising</strong> edge, and the bit must be seen low before it can acknowledge again. A controller that stops with the bit held high clears nothing further &mdash; it cannot silently erase every result it never read.</li>
+      <li>Acknowledgement can only <strong>clear</strong>. It never sets <code>Pass</code>.</li>
+      <li>An acknowledge with no result outstanding does nothing.</li>
+      <li>Triggering again before acknowledging is allowed, and <code>Busy</code> overwrites the old result as it always has &mdash; but the station writes an audit event saying the result was never taken. It does not refuse the trigger: the controller owns the sequence, and stalling the line over a controller-side fault would be worse.</li>
+    </ul>
+  </div>
 
   <div class="tablewrap">
     <table>
@@ -769,7 +819,7 @@ footer {
   <div class="note stop">
     <span class="tag">Three things your program must not assume</span>
     <ul>
-      <li><strong>There is no acknowledgement tag and no sequence number.</strong> Treat <code>Complete</code> as the validity of the latest result. Do not wait for the station to clear it after <code>Trigger</code> falls &mdash; it will not.</li>
+      <li><strong>There is no sequence number, and <code>Complete</code> is never cleared by <code>Trigger</code> going low.</strong> With no acknowledge tag configured, treat <code>Complete</code> as the validity of the latest result and do not wait for the station to clear it after <code>Trigger</code> falls &mdash; it will not.</li>
       <li><strong><code>Trigger</code> must be observed low before a new rising edge is accepted.</strong> Holding it high does not produce repeat inspections.</li>
       <li><strong>A trigger can produce no result at all.</strong> If the requested recipe does not match the active one, the station logs the mismatch and ignores that edge. It does not publish a synthetic Fail. Your program must inhibit the product and apply its own timeout when <code>Busy</code> and <code>Complete</code> do not follow a request.</li>
     </ul>
@@ -821,7 +871,7 @@ Inspection_Interlock_OK := Bypass_Effective OR BatteryVision.Pass;</code></pre>
   <p>Work through these against the real controller and the real program revision. Record what you observe, not what is configured.</p>
   <ol class="check">
     <li>Create all tags with the expected types.</li>
-    <li>Open <strong>Settings &rarr; PLC TAGS</strong>, choose name or number selection, and confirm every tag name.</li>
+    <li>Open <strong>Settings &rarr; PLC TAGS</strong>, choose name or number selection, and confirm every tag name. Leave <strong>Acknowledge tag</strong> blank to keep the latched behaviour.</li>
     <li>Open <strong>Settings &rarr; PLC MODE</strong> and set the Logix path.</li>
     <li>Set the heartbeat interval. The default is 1000 ms.</li>
     <li>Select <strong>APPLY &amp; TEST PYCOMM3</strong>.</li>
@@ -832,6 +882,8 @@ Inspection_Interlock_OK := Bypass_Effective OR BatteryVision.Pass;</code></pre>
     <li>Trigger a known pass and verify <code>Complete=1, Pass=1, Fail=0</code>.</li>
     <li>Trigger a known reject and verify <code>Complete=1, Pass=0, Fail=1</code>.</li>
     <li>Trigger with bypass on and confirm the station still evaluates the real result while the controller bypasses the quality interlock.</li>
+    <li>With the acknowledge tag configured: trigger a cycle, confirm <code>Complete</code> is written, raise the acknowledge bit, and confirm <code>Busy</code>, <code>Complete</code>, <code>Pass</code>, and <code>Fail</code> all return to 0.</li>
+    <li>With the acknowledge tag configured: hold the acknowledge bit high and run another cycle. Confirm the new result is still published. A held bit must never clear a result the controller has not read.</li>
     <li>Request a recipe the station does not have. Confirm the product stays inhibited and your timeout logic fires.</li>
     <li>Pull the network cable mid-cycle. Confirm the line ends up safe and the watchdog trips.</li>
   </ol>
@@ -880,9 +932,9 @@ Inspection_Interlock_OK := Bypass_Effective OR BatteryVision.Pass;</code></pre>
 
   <div class="note stop">
     <span class="tag">Check what was actually saved</span>
-    <p>Builds before v0.24.0 could clear a terminal's red-ring requirement when a recipe was reopened for editing. A cleared requirement is invisible on the inspection screen and turns a part that should reject into a pass. After building or editing any recipe, confirm what is stored:</p>
+    <p>Builds before v0.25.0 could clear a terminal's red-ring requirement when a recipe was reopened for editing. A cleared requirement is invisible on the inspection screen and turns a part that should reject into a pass. After building or editing any recipe, confirm what is stored:</p>
     <pre><code>python scripts\diagnose_station.py --station "C:\ProgramData\Pole Position"</code></pre>
-    <p>Check the red-ring flag and the expected finish printed for each terminal against the real part. Do this for every recipe created or edited before v0.24.0.</p>
+    <p>Check the red-ring flag and the expected finish printed for each terminal against the real part. Do this for every recipe created or edited before v0.25.0.</p>
   </div>
 
   <h3>The reference picture</h3>
@@ -1072,7 +1124,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
         <tr><td>Good parts reject in a run</td><td>Lighting changed, the lens moved, the fixture shifted, or a new supplier's finish differs.</td><td>Compare a current picture with the recipe reference. Re-teach and revalidate if the part has genuinely changed.</td></tr>
         <tr><td><code>NO NEW CAMERA FRAME</code></td><td>The camera did not deliver a picture for that cycle.</td><td>Check the camera on Diagnostics and the cable. This is a fault, not a reject.</td></tr>
         <tr><td>PLC red in the bottom strip</td><td>Path, tag names, or network.</td><td>Settings &rarr; PLC, then <strong>APPLY &amp; TEST PYCOMM3</strong>.</td></tr>
-        <tr><td>Text overlapping on screen</td><td>A display scale that leaves too little room.</td><td>v0.24.0 scrolls instead of overlapping. If you still see overlap, report it with the monitor resolution and the Windows scale setting.</td></tr>
+        <tr><td>Text overlapping on screen</td><td>A display scale that leaves too little room.</td><td>v0.25.0 scrolls instead of overlapping. If you still see overlap, report it with the monitor resolution and the Windows scale setting.</td></tr>
         <tr><td>Training fails to start</td><td>Training runtime incomplete.</td><td>ML Train &rarr; Prepare &rarr; <strong>CHECK TRAINING RUNTIME</strong>.</td></tr>
         <tr><td>Backup or file operations stall</td><td>Antivirus scanning every file the station touches.</td><td>Exclude the program directory and <code>C:\ProgramData\Pole Position</code> from real-time scanning.</td></tr>
       </tbody>
@@ -1123,7 +1175,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position station handbook, Rev A, for application v0.24.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
+  <p><strong>Pole Position station handbook, Rev A, for application v0.25.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
   <p>This document is an unapproved draft. It does not replace your site's approved user manual, and it is not a controlled record until your quality process makes it one. Where this handbook and the station's own behaviour disagree, the station is right and this document needs correcting.</p>
 </footer>
 

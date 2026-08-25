@@ -175,6 +175,13 @@ class AppController(QObject):
         self._plc_poll_in_flight = False
         self._last_plc_recipe_mismatch = ""
         self._plc_trigger_edge = TriggerEdgeLatch()
+        # The acknowledge handshake. The edge latch matters as much here as it
+        # does for the trigger: an acknowledge bit left high by a stopped or
+        # faulted controller would otherwise clear every future result the
+        # instant it was published, and the PLC would see nothing at all.
+        self._plc_acknowledge_edge = TriggerEdgeLatch()
+        self._plc_result_outstanding = False
+        self._plc_unacknowledged_reported = False
         self._last_plc_state: dict[str, Any] = {
             "trigger": False,
             "recipe_name": self.active_recipe.name if self.active_recipe else "",
@@ -768,6 +775,9 @@ class AppController(QObject):
         self.plc = replacement
         self.plc_backend_active = active_backend
         self._plc_trigger_edge.reset()
+        self._plc_acknowledge_edge.reset()
+        self._plc_result_outstanding = False
+        self._plc_unacknowledged_reported = False
         self._last_plc_state.update(
             {
                 "trigger": False,
@@ -1899,6 +1909,16 @@ class AppController(QObject):
         plc_triggered = trigger_source == "PLC"
         if plc_triggered:
             self.plc.publish_result(passed=False, busy=True)
+            # Busy clears the previous result, so nothing is outstanding until
+            # this cycle publishes.
+            #
+            # The acknowledge latch is deliberately left alone. Resetting it
+            # here would rearm it on a bit that is still high, so a controller
+            # holding acknowledge would clear each new result the moment it was
+            # published and would itself see nothing. Leaving the latch means
+            # the bit has to be observed low before it can acknowledge again,
+            # which is what "the controller took this result" actually requires.
+            self._plc_result_outstanding = False
             self._emit_plc_simulation_state()
 
         frame: CameraFrame | None = None
@@ -1956,6 +1976,9 @@ class AppController(QObject):
                     passed=result.passed,
                     busy=False,
                 )
+                if self._acknowledge_configured():
+                    self._plc_result_outstanding = True
+                    self._plc_unacknowledged_reported = False
                 self._emit_plc_simulation_state()
             except Exception as exc:  # noqa: BLE001
                 self._add_event("PLC", f"Could not publish inspection result: {exc}")
@@ -2174,6 +2197,7 @@ class AppController(QObject):
                     details={"source": "PLC_READBACK", "bypass": bypass},
                 )
         self._emit_plc_simulation_state()
+        self._handle_plc_acknowledge(state)
         trigger_level = bool(state.get("trigger", False))
         trigger_edge = self._plc_trigger_edge.observe(trigger_level)
         selector = str(state.get("recipe_selector", self.config.plc_recipe_selector))
@@ -2208,7 +2232,55 @@ class AppController(QObject):
             return
         self._last_plc_recipe_mismatch = ""
         if trigger_edge:
+            if self._plc_result_outstanding and not self._plc_unacknowledged_reported:
+                # The controller is triggering again without having taken the
+                # previous result. Publishing the new cycle overwrites it, so
+                # say so once rather than letting a result disappear silently.
+                # This is not a reason to refuse the trigger: stalling the line
+                # over a controller-side sequencing fault would be worse, and
+                # the PLC owns that sequence.
+                self._add_event(
+                    "PLC",
+                    "PLC triggered a new inspection before acknowledging the previous result",
+                    details={"acknowledge_tag": self.config.tags.acknowledge},
+                )
+                self._plc_unacknowledged_reported = True
             self.run_inspection("PLC")
+
+    def _acknowledge_configured(self) -> bool:
+        """Blank tag means the handshake is off and results stay latched."""
+
+        return bool(str(self.config.tags.acknowledge or "").strip())
+
+    def _handle_plc_acknowledge(self, state: dict[str, Any]) -> None:
+        """Clear a published result once the controller says it has taken it.
+
+        Without this handshake the result stays on the tags until the next
+        cycle raises Busy, so the PLC has to treat Complete as the validity of
+        whatever it last read. With it, the station clears Busy, Complete,
+        Pass, and Fail together as soon as the acknowledge bit rises, and the
+        controller can treat Complete as a one-shot.
+
+        The station never sets a result here. Acknowledgement can only clear.
+        """
+
+        if not self._acknowledge_configured():
+            return
+        level = state.get("acknowledge")
+        if level is None:
+            return
+        if not self._plc_acknowledge_edge.observe(bool(level)):
+            return
+        if not self._plc_result_outstanding:
+            return
+        try:
+            self.plc.clear_result()
+        except Exception as exc:  # noqa: BLE001
+            self._add_event("PLC", f"Could not clear the acknowledged result: {exc}")
+            return
+        self._plc_result_outstanding = False
+        self._plc_unacknowledged_reported = False
+        self._emit_plc_simulation_state()
 
     def _accept_inspection(self, result: InspectionResult, *, increment_counts: bool) -> None:
         self.last_inspection = result

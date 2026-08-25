@@ -14,6 +14,7 @@ The HMI uses the following default tags. All names remain editable under **Setti
 | Requested recipe | `BatteryVision.RecipeName` | STRING or SINT/INT/DINT | PLC → HMI |
 | HMI heartbeat | `BatteryVision.Heartbeat` | BOOL | HMI → PLC |
 | Inspection bypass request | `BatteryVision.Bypass` | BOOL | HMI → PLC (read back by HMI) |
+| Result acknowledge (optional) | *(blank by default)* | BOOL | PLC → HMI |
 
 ## Binary result contract
 
@@ -31,15 +32,60 @@ Every completed result is mutually exclusive: exactly one of `Pass` or `Fail`
 is true while `Complete` is true. REJECT, NOT READY, acquisition failure, and
 internal fault all publish the same binary FAIL output.
 
-### As-built result lifetime
+### Result lifetime
 
-v0.24.0 has no result sequence, acknowledgement tag, or automatic
-complete-clear when Trigger returns low. The completed state remains written
-until the next accepted cycle publishes Busy, or until PLC settings are
-connected/applied and the HMI verifies the idle row. Trigger must be observed
-false before a new rising edge can be accepted. PLC logic must consume
+There is no result sequence number, and `Complete` is never cleared because
+`Trigger` returned low. How long a result stays on the tags depends on whether
+the optional acknowledge tag is configured.
+
+**Acknowledge tag blank (default, and the behaviour of every station
+commissioned before v0.25.0).** The completed state remains written until the
+next accepted cycle publishes Busy, or until PLC settings are
+connected/applied and the HMI verifies the idle row. PLC logic must consume
 `Complete` as the validity of the latest result and must not wait for the HMI to
 clear it after Trigger falls.
+
+**Acknowledge tag configured.** The controller raises the acknowledge bit once
+it has taken the result. On the next poll the HMI writes the idle row --
+`Busy`, `Complete`, `Pass`, and `Fail` all false -- and the controller drops the
+bit. `Complete` then behaves as a one-shot per cycle.
+
+The handshake is edge-driven in both directions, and the rules that make it
+safe are worth stating explicitly:
+
+- The HMI acts on a **rising** edge of acknowledge, and the bit must be observed
+  low before it can acknowledge again. A controller that stops with the bit
+  held high therefore clears nothing further; it does not silently erase
+  every result it never read.
+- Acknowledgement can only **clear**. It never sets `Pass`.
+- A result is cleared only when one is outstanding. An acknowledge with no
+  published result does nothing.
+- Triggering a new cycle before acknowledging the previous result is allowed --
+  Busy overwrites it, as it always has -- but the HMI records an audit event
+  saying the result was never taken. The station does not refuse the trigger:
+  the controller owns the sequence, and stalling the line over a controller-side
+  sequencing fault would be worse.
+
+In either mode, `Trigger` must be observed false before a new rising edge can be
+accepted.
+
+Recommended acknowledge logic:
+
+```text
+IF BatteryVision.Complete AND NOT Result_Consumed THEN
+    // latch Pass/Fail into the product record here
+    Result_Consumed := TRUE;
+    BatteryVision.Ack := TRUE;
+END_IF;
+
+IF NOT BatteryVision.Complete THEN
+    BatteryVision.Ack := FALSE;
+    Result_Consumed := FALSE;
+END_IF;
+```
+
+Dropping the acknowledge bit when `Complete` goes low, rather than on a timer,
+is what rearms the handshake for the next cycle.
 
 On connection/application of PLC settings, the HMI writes the idle row of the
 table. This both clears stale cycle outputs and verifies that all four output
@@ -123,9 +169,11 @@ Use the facility's normal permissive/fault structure rather than copying this ex
 
 ## Commissioning sequence
 
-1. Create all tags with the expected types.
+1. Create all tags with the expected types. The acknowledge tag is optional;
+   create it only if the program raises it after consuming a result.
 2. In the HMI, open **Settings → PLC TAGS**, choose name or number selection,
-   and confirm the tag names.
+   and confirm the tag names. Leave **Acknowledge tag** blank to keep the
+   latched behaviour.
 3. Open **Settings → PLC MODE** and set the Logix path.
 4. Set the heartbeat interval (default 1000 ms).
 5. Select **APPLY & TEST PYCOMM3**.
@@ -136,3 +184,9 @@ Use the facility's normal permissive/fault structure rather than copying this ex
 10. Trigger a known PASS and verify `Complete=1, Pass=1, Fail=0`.
 11. Trigger a known non-PASS and verify `Complete=1, Pass=0, Fail=1`.
 12. Trigger a cycle with bypass ON and confirm the HMI still evaluates the real result while the PLC bypasses the quality interlock.
+13. With the acknowledge tag configured: trigger a cycle, confirm `Complete` is
+    written, raise the acknowledge bit, and confirm `Busy`, `Complete`, `Pass`,
+    and `Fail` all return to 0.
+14. With the acknowledge tag configured: hold the acknowledge bit high, run a
+    further cycle, and confirm the new result is still published. A held bit
+    must not clear a result the controller has not read.

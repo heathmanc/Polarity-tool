@@ -97,6 +97,7 @@ class MockPlcService(PlcService):
         self._trigger = False
         self._heartbeat = False
         self._bypass = False
+        self._acknowledge = False
         self._lock = Lock()
         self.last_result: dict[str, Any] = {}
 
@@ -114,6 +115,14 @@ class MockPlcService(PlcService):
                 raise PlcError("Mock PLC is not connected")
             self._trigger = True
 
+    def set_acknowledge(self, value: bool) -> None:
+        """Stand in for a controller raising or dropping the acknowledge bit."""
+
+        with self._lock:
+            if not self._connected:
+                raise PlcError("Mock PLC is not connected")
+            self._acknowledge = bool(value)
+
     def read_cycle_state(self) -> dict[str, Any]:
         with self._lock:
             if not self._connected:
@@ -125,6 +134,7 @@ class MockPlcService(PlcService):
                 "recipe_selector": self.recipe_selector,
                 "heartbeat": self._heartbeat,
                 "bypass": self._bypass,
+                "acknowledge": self._acknowledge,
             }
             self._trigger = False
             return state
@@ -180,6 +190,7 @@ class MockPlcService(PlcService):
                 "recipe_selector": self.recipe_selector,
                 "heartbeat": self._heartbeat,
                 "bypass": self._bypass,
+                "acknowledge": self._acknowledge,
                 **result,
             }
 
@@ -243,14 +254,22 @@ class AllenBradleyPlcService(PlcService):
     def read_cycle_state(self) -> dict[str, Any]:
         with self._lock:
             driver = self._require_driver()
-            values = driver.read(self.tags.trigger, self.tags.recipe_name, self.tags.bypass)
+            # The acknowledge tag is optional. Reading it in the same request
+            # as the rest keeps the poll to one round trip whether or not the
+            # handshake is configured.
+            acknowledge_tag = str(self.tags.acknowledge or "").strip()
+            names = [self.tags.trigger, self.tags.recipe_name, self.tags.bypass]
+            if acknowledge_tag:
+                names.append(acknowledge_tag)
+            values = driver.read(*names)
             if not isinstance(values, list):
                 values = [values]
-            if len(values) != 3:
+            if len(values) != len(names):
                 raise PlcError("Unexpected PLC read response")
             trigger = bool(self._tag_value(values[0]))
             recipe_value = self._tag_value(values[1])
             bypass = bool(self._tag_value(values[2]))
+            acknowledge = bool(self._tag_value(values[3])) if acknowledge_tag else None
             if self.recipe_selector == "number":
                 try:
                     recipe_number = int(recipe_value)
@@ -269,6 +288,7 @@ class AllenBradleyPlcService(PlcService):
                 "recipe_selector": self.recipe_selector,
                 "heartbeat": self._heartbeat,
                 "bypass": bypass,
+                "acknowledge": acknowledge,
             }
 
     def publish_result(self, *, passed: bool, busy: bool = False) -> None:
