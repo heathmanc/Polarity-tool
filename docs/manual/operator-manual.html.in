@@ -710,7 +710,7 @@ footer {
   <div class="diagram">
     <svg viewBox="0 0 720 300" role="img" aria-labelledby="timing-title timing-desc">
       <title id="timing-title">Inspection cycle timing</title>
-      <desc id="timing-desc">Trigger rises and the station raises Busy. Busy stays high for the inspection. When the inspection finishes, Busy falls and Complete rises together with exactly one of Pass or Fail, and those stay latched until the next cycle raises Busy again.</desc>
+      <desc id="timing-desc">Trigger rises and the station raises Busy. Busy stays high for the inspection. When the inspection finishes, Busy falls and Complete rises together with exactly one of Pass or Fail, and those stay latched until the next trigger edge is accepted and Busy rises again.</desc>
 
       <line class="gridline" x1="150" y1="26" x2="150" y2="268"></line>
       <line class="gridline" x1="300" y1="26" x2="300" y2="268"></line>
@@ -723,7 +723,7 @@ footer {
       <text class="stage" x="620" y="18">Next cycle</text>
 
       <text class="sig" x="8" y="52">Trigger</text>
-      <path class="wire wire-in" d="M96 60 L150 60 L150 34 L240 34 L240 60 L704 60"></path>
+      <path class="wire wire-in" d="M96 60 L150 60 L150 34 L240 34 L240 60 L598 60 L598 34 L688 34 L688 60 L704 60"></path>
 
       <text class="sig" x="8" y="110">Busy</text>
       <path class="wire wire-out" d="M96 118 L152 118 L152 92 L470 92 L470 118 L620 118 L620 92 L704 92"></path>
