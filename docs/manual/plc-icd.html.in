@@ -1,0 +1,345 @@
+<header class="cover">
+  <p class="eyebrow">Pole Position &middot; Battery polarity inspection</p>
+  <h1>PLC Interface Control Document</h1>
+  <p class="standfirst">Every signal the station reads, every signal it writes, how long each one holds its state, and what the controller must do about it.</p>
+  <dl class="docmeta">
+    <div><dt>Applies to</dt><dd>v0.25.0</dd></div>
+    <div><dt>Document</dt><dd>Rev A</dd></div>
+    <div><dt>Status</dt><dd>Unapproved draft</dd></div>
+    <div><dt>Audience</dt><dd>Controls engineer</dd></div>
+  </dl>
+</header>
+
+<section class="part">
+  <div class="part-head"><span class="part-num">1</span><h2>Scope</h2></div>
+
+  <p>Pole Position inspects battery terminal polarity and reports one binary result to a Logix controller over EtherNet/IP, using pycomm3. This document specifies that interface completely: the tags, their types and directions, how long each signal holds its state, and the conditions under which the station writes nothing at all.</p>
+
+  <div class="note stop">
+    <span class="tag">Safety boundary</span>
+    <p>Pole Position is a quality inspection system. It is <strong>not</strong> a safety PLC, a machine guard, an emergency-stop device, or a safety-rated control. The controller owns the line permissive, the reject, the stop, and the bypass. Nothing in this document may be used as a safety function, and the bypass tag is an operational quality bypass only.</p>
+  </div>
+
+  <h3>Transport and timing</h3>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Property</th><th>Value</th><th>Where it is set</th></tr></thead>
+      <tbody>
+        <tr><td>Protocol</td><td>EtherNet/IP, pycomm3 <code>LogixDriver</code></td><td>&mdash;</td></tr>
+        <tr><td>Controller path</td><td>Site-specific</td><td>Settings &rarr; PLC MODE</td></tr>
+        <tr><td>Input poll interval</td><td><strong>250 ms</strong> default</td><td>Settings &rarr; PLC</td></tr>
+        <tr><td>Heartbeat interval</td><td><strong>1000 ms</strong> default</td><td>Settings &rarr; PLC</td></tr>
+        <tr><td>Tag names</td><td>All editable</td><td>Settings &rarr; PLC TAGS</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>The station is the <strong>client</strong>. It polls the controller's inputs and writes its outputs. The controller is never required to initiate a connection.</p>
+
+  <div class="note care">
+    <span class="tag">The station stops polling during an inspection</span>
+    <p>Input reads are suspended for the duration of a cycle. Nothing the controller does to <code>Trigger</code>, the recipe selector, <code>Bypass</code>, or <code>Ack</code> is observed between <code>Busy</code> rising and the result being published. This has consequences for the trigger, described in section 3.</p>
+  </div>
+</section>
+
+<section class="part">
+  <div class="part-head"><span class="part-num">2</span><h2>Signal register</h2></div>
+
+  <p>Persistence is stated for every signal, because it decides how the controller must read or drive it.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Signal</th><th>Default tag</th><th>Type</th><th>Direction</th><th>Persistence</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Trigger</strong></td><td><code>BatteryVision.Trigger</code></td><td>BOOL</td><td>PLC &rarr; station</td>
+          <td><span class="badge edge">Edge</span> acted on 0&rarr;1; must return to 0</td>
+        </tr>
+        <tr>
+          <td><strong>Recipe selector</strong></td><td><code>BatteryVision.RecipeName</code></td><td>STRING or SINT/INT/DINT</td><td>PLC &rarr; station</td>
+          <td><span class="badge level">Level</span> must be settled before the trigger</td>
+        </tr>
+        <tr>
+          <td><strong>Acknowledge</strong> <em>(optional)</em></td><td>blank by default</td><td>BOOL</td><td>PLC &rarr; station</td>
+          <td><span class="badge edge">Edge</span> acted on 0&rarr;1; must return to 0</td>
+        </tr>
+        <tr>
+          <td><strong>Busy</strong></td><td><code>BatteryVision.Busy</code></td><td>BOOL</td><td>station &rarr; PLC</td>
+          <td><span class="badge level">Level</span> high for the whole cycle</td>
+        </tr>
+        <tr>
+          <td><strong>Complete</strong></td><td><code>BatteryVision.Complete</code></td><td>BOOL</td><td>station &rarr; PLC</td>
+          <td><span class="badge latched">Latched</span> until cleared &mdash; see 4.2</td>
+        </tr>
+        <tr>
+          <td><strong>Pass</strong></td><td><code>BatteryVision.Pass</code></td><td>BOOL</td><td>station &rarr; PLC</td>
+          <td><span class="badge latched">Latched</span> with <code>Complete</code></td>
+        </tr>
+        <tr>
+          <td><strong>Fail</strong></td><td><code>BatteryVision.Fail</code></td><td>BOOL</td><td>station &rarr; PLC</td>
+          <td><span class="badge latched">Latched</span> with <code>Complete</code></td>
+        </tr>
+        <tr>
+          <td><strong>Heartbeat</strong></td><td><code>BatteryVision.Heartbeat</code></td><td>BOOL</td><td>station &rarr; PLC</td>
+          <td><span class="badge alt">Alternating</span> neither level means anything</td>
+        </tr>
+        <tr>
+          <td><strong>Bypass</strong></td><td><code>BatteryVision.Bypass</code></td><td>BOOL</td><td>station &harr; PLC</td>
+          <td><span class="badge level">Level</span> written by the station, read back every poll</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="legend">
+    <div><span class="badge level">Level</span><span>Holds its state until something changes it. Sample it at any time.</span></div>
+    <div><span class="badge edge">Edge</span><span>The transition is the event. The signal must return low before it can act again.</span></div>
+    <div><span class="badge latched">Latched</span><span>Set by one event, cleared only by a named other event. Never self-clears on a timer.</span></div>
+    <div><span class="badge alt">Alternating</span><span>Toggles continuously. The value carries no meaning; only the change does.</span></div>
+  </div>
+
+  <p>There is no reason code, no result sequence number, and no status word. Reject, not-ready, acquisition failure, and internal fault all publish the same <code>Fail</code>. Reasons stay in the station's own screens and retained evidence.</p>
+</section>
+
+<section class="part">
+  <div class="part-head"><span class="part-num">3</span><h2>What the station reads</h2></div>
+
+  <h3>3.1 &nbsp;Trigger &mdash; edge, PLC&nbsp;&rarr;&nbsp;station</h3>
+
+  <p>The station samples this tag every poll while it is idle and starts one inspection on the <strong>rising edge</strong>. The level itself starts nothing; holding the tag high does not produce repeat inspections.</p>
+
+  <h4>What the controller must guarantee</h4>
+  <ul>
+    <li><strong>Hold <code>Trigger</code> high until <code>Busy</code> goes high.</strong> This is the only robust rule. A pulse shorter than one poll interval can fall between polls and never be seen.</li>
+    <li><strong>Return <code>Trigger</code> low before the next part.</strong> The station rearms only after observing a low level. A tag left high produces exactly one inspection, ever.</li>
+    <li><strong>Do not pulse <code>Trigger</code> while <code>Busy</code> is high.</strong> Input polling is suspended during a cycle, so a pulse that rises and falls entirely inside the cycle is <strong>never observed and is silently lost</strong>. No result is published for it, and nothing is logged.</li>
+  </ul>
+
+  <div class="note stop">
+    <span class="tag">The most likely integration fault</span>
+    <p>A trigger that is missed produces no <code>Busy</code>, no <code>Complete</code>, and no error &mdash; the station simply never saw it. The controller must inhibit the product and apply its own timeout whenever <code>Busy</code> does not follow a trigger within an expected window. Do not treat silence as a pass.</p>
+  </div>
+
+  <h3>3.2 &nbsp;Recipe selector &mdash; level, PLC&nbsp;&rarr;&nbsp;station</h3>
+
+  <p>Configure the tag as one of:</p>
+  <ul>
+    <li><strong>Recipe name</strong> &mdash; read as a Logix STRING and compared to the active recipe's name.</li>
+    <li><strong>Recipe number</strong> &mdash; read as SINT, INT, or DINT. Numbers are stable across recipe revisions, which makes them the safer choice for a program that outlives a recipe edit.</li>
+  </ul>
+
+  <p>The selector is read <strong>in the same request as the trigger</strong>, so the two are always consistent with each other. It must be settled before the trigger rises.</p>
+
+  <div class="note care">
+    <span class="tag">A mismatch produces no result at all</span>
+    <p>If the requested recipe does not match the active one, the station logs the mismatch, <strong>ignores that trigger edge, and publishes nothing</strong>. It does not write a synthetic <code>Fail</code>. <code>Busy</code> and <code>Complete</code> stay where they were. The controller must keep the product inhibited and time out.</p>
+  </div>
+
+  <h3>3.3 &nbsp;Acknowledge &mdash; edge, PLC&nbsp;&rarr;&nbsp;station, optional</h3>
+
+  <p>Blank by default, and blank means the handshake is off. When a tag is configured, the station clears its published result on the rising edge. See 4.2 for the two result lifetimes.</p>
+  <ul>
+    <li>Acted on <strong>0&rarr;1</strong>, and the bit must be observed low before it can acknowledge again.</li>
+    <li>Acknowledgement can only <strong>clear</strong>. It never sets <code>Pass</code>.</li>
+    <li>An acknowledge with no result outstanding does nothing.</li>
+    <li>Not read while <code>Busy</code> is high.</li>
+  </ul>
+
+  <h3>3.4 &nbsp;Bypass read-back &mdash; level, both directions</h3>
+
+  <p>The station writes this tag when an operator changes bypass at the HMI, verifies the read-back, and then reads it every poll. A controller-side change is reflected at the HMI. See 5.3.</p>
+</section>
+
+<section class="part">
+  <div class="part-head"><span class="part-num">4</span><h2>What the station writes</h2></div>
+
+  <h3>4.1 &nbsp;Busy &mdash; level, station&nbsp;&rarr;&nbsp;PLC</h3>
+  <p>Raised when a PLC-triggered cycle is accepted and held for the whole cycle: acquisition, registration, classification, and evidence writing. It falls at the moment the result is published.</p>
+  <p>Writing <code>Busy</code> also clears the previous result, so <code>Complete</code>, <code>Pass</code>, and <code>Fail</code> all go low as <code>Busy</code> goes high.</p>
+
+  <h3>4.2 &nbsp;Complete, Pass, Fail &mdash; latched, station&nbsp;&rarr;&nbsp;PLC</h3>
+
+  <p>Published together when the cycle finishes. <strong>Exactly one of <code>Pass</code> or <code>Fail</code> is high while <code>Complete</code> is high</strong> &mdash; never both, never neither.</p>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Cycle phase</th><th class="num">Busy</th><th class="num">Complete</th><th class="num">Pass</th><th class="num">Fail</th></tr></thead>
+      <tbody>
+        <tr><td>Idle, result cleared</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+        <tr><td>Inspection running</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+        <tr><td>Completed PASS</td><td class="num">0</td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
+        <tr><td>Completed non-PASS</td><td class="num">0</td><td class="num">1</td><td class="num">0</td><td class="num">1</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>How long the result stays &mdash; and it is never a timer</h4>
+  <p>These three tags are <strong>latched</strong>. Nothing clears them on a timeout, and <code>Trigger</code> returning low does not clear them. They are cleared by exactly three things:</p>
+  <ol>
+    <li>The next accepted cycle raising <code>Busy</code>.</li>
+    <li>A rising edge on the acknowledge tag, if one is configured.</li>
+    <li>The station connecting to the controller, or PLC settings being applied &mdash; both write the idle row.</li>
+  </ol>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Acknowledge tag</th><th>Result lifetime</th><th>What the controller must do</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Blank</strong><br>(default)</td>
+          <td>Until the next cycle raises <code>Busy</code>.</td>
+          <td>Treat <code>Complete</code> as the validity of the result it last read. Latch <code>Pass</code>/<code>Fail</code> into the product record on your own edge of <code>Complete</code>.</td>
+        </tr>
+        <tr>
+          <td><strong>Configured</strong></td>
+          <td>Until the acknowledge bit rises; the station then writes the idle row.</td>
+          <td>Raise the bit after consuming the result, and drop it when <code>Complete</code> goes low. <code>Complete</code> is then a one-shot per cycle.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.3 &nbsp;Heartbeat &mdash; alternating, station&nbsp;&rarr;&nbsp;PLC</h3>
+
+  <p>The station inverts this tag every heartbeat interval, 1000 ms by default. It keeps toggling <strong>while a cycle is busy</strong>, so it distinguishes a long inspection from a dead station. It is written on its own timer, independent of the input poll.</p>
+
+  <div class="note stop">
+    <span class="tag">Watch the transition, never the value</span>
+    <p>Neither 0 nor 1 means healthy. A program that reads the bit as a health flag will believe a dead station is fine half the time. Store the last value, reset a watchdog timer whenever it changes, and declare communications unhealthy when no change is seen for at least three heartbeat intervals.</p>
+  </div>
+
+  <p>One exception to the toggling: when PLC settings are applied at the HMI, the station writes <code>Heartbeat = 0</code> once as part of verifying the connection, then resumes toggling. A watchdog with a three-interval timeout rides through this.</p>
+
+  <h3>4.4 &nbsp;Bypass &mdash; level, station&nbsp;&rarr;&nbsp;PLC</h3>
+  <p>Set from the Overview screen and verified by read-back. Persistent until changed by the HMI or by the controller. On a normal station shutdown the station attempts to clear it, but see 5.3: that attempt is best-effort and the watchdog is the real protection.</p>
+</section>
+
+<section class="part">
+  <div class="part-head"><span class="part-num">5</span><h2>Sequencing</h2></div>
+
+  <div class="diagram">
+    {{DIAGRAM}}
+  </div>
+  <figcaption><b>Figure 1</b><span>A passing cycle with the acknowledge tag configured. A rejecting cycle is identical except that <code>Fail</code> rises instead of <code>Pass</code>. With the acknowledge tag blank, the result stays latched from <code>Result</code> onward until the next cycle raises <code>Busy</code>.</span></figcaption>
+
+  <h3>5.1 &nbsp;Normal cycle</h3>
+  <ol>
+    <li>Controller settles the recipe selector.</li>
+    <li>Controller raises <code>Trigger</code>.</li>
+    <li>Station observes the rising edge on its next poll (within one poll interval), raises <code>Busy</code>, and clears the previous result.</li>
+    <li>Controller drops <code>Trigger</code> once <code>Busy</code> is high.</li>
+    <li>Station acquires a fresh frame and grades it. <code>Busy</code> stays high. <code>Heartbeat</code> keeps toggling. No inputs are read.</li>
+    <li>Station drops <code>Busy</code>, raises <code>Complete</code> and exactly one of <code>Pass</code> or <code>Fail</code>.</li>
+    <li>Controller consumes the result and latches it into the product record.</li>
+    <li><em>With the acknowledge tag configured:</em> controller raises <code>Ack</code>; station writes the idle row; controller drops <code>Ack</code> when <code>Complete</code> goes low.</li>
+  </ol>
+
+  <h3>5.2 &nbsp;Cases that publish nothing</h3>
+  <p>Three situations produce no change on any output tag. In all three the controller must inhibit the product and rely on its own timeout.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Situation</th><th>What the station does</th><th>What the controller sees</th></tr></thead>
+      <tbody>
+        <tr><td>Requested recipe does not match the active recipe</td><td>Logs the mismatch, ignores the trigger edge</td><td>No <code>Busy</code>, no <code>Complete</code></td></tr>
+        <tr><td>Trigger pulses entirely while <code>Busy</code> is high</td><td>Never observes it</td><td>No second cycle, nothing logged</td></tr>
+        <tr><td>Operator runs a manual inspection at the HMI</td><td>Grades the part and records it locally</td><td><strong>Nothing.</strong> Manual cycles never touch the PLC tags</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>5.3 &nbsp;Loss of communication</h3>
+  <p>A failed read or a failed heartbeat write is treated as a PLC communication fault. The station then:</p>
+  <ul>
+    <li><strong>stops polling inputs and stops toggling the heartbeat;</strong></li>
+    <li>leaves every output tag <strong>frozen at its last written value</strong>;</li>
+    <li>marks the PLC unhealthy on the HMI and records the fault;</li>
+    <li><strong>does not</strong> fall back to simulation, and does not resume on its own. A technician repairs the fault and re-applies PLC settings, or explicitly selects simulation.</li>
+  </ul>
+
+  <div class="note stop">
+    <span class="tag">Frozen outputs are the reason the watchdog is mandatory</span>
+    <p>After a communication fault the last result stays written and the bypass tag stays whatever it was. A stale <code>Pass</code> and a stale <code>Bypass = TRUE</code> can both persist indefinitely. The heartbeat watchdog is the only mechanism that revokes them, so bypass must be conditioned on it:</p>
+    <pre><code>Bypass_Effective := BatteryVision.Bypass AND HMI_Comm_OK;
+Inspection_Interlock_OK := Bypass_Effective OR BatteryVision.Pass;</code></pre>
+    <p>Use your facility's normal permissive structure rather than copying this expression into safety-related logic.</p>
+  </div>
+</section>
+
+<section class="part">
+  <div class="part-head"><span class="part-num">6</span><h2>Required controller logic</h2></div>
+
+  <h3>6.1 &nbsp;Heartbeat watchdog &mdash; mandatory</h3>
+  <pre><code>IF BatteryVision.Heartbeat &lt;&gt; Last_HMI_Heartbeat THEN
+    Last_HMI_Heartbeat := BatteryVision.Heartbeat;
+    HMI_Watchdog_Reset := TRUE;
+ELSE
+    HMI_Watchdog_Reset := FALSE;
+END_IF;
+
+// Site-standard timer around HMI_Watchdog_Reset.
+// At the default 1000 ms heartbeat, a 3000-4000 ms timeout is recommended.</code></pre>
+
+  <h3>6.2 &nbsp;Result acknowledge &mdash; only if the tag is configured</h3>
+  <pre><code>IF BatteryVision.Complete AND NOT Result_Consumed THEN
+    // latch Pass/Fail into the product record here
+    Result_Consumed := TRUE;
+    BatteryVision.Ack := TRUE;
+END_IF;
+
+IF NOT BatteryVision.Complete THEN
+    BatteryVision.Ack := FALSE;
+    Result_Consumed := FALSE;
+END_IF;</code></pre>
+  <p>Dropping the bit when <code>Complete</code> goes low, rather than on a timer, is what rearms the handshake for the next cycle.</p>
+
+  <h3>6.3 &nbsp;Trigger and timeout</h3>
+  <pre><code>// Settle the selector, then trigger, then hold until Busy is seen.
+IF Part_In_Position AND NOT Inspection_Requested THEN
+    BatteryVision.RecipeName := Active_Recipe_Number;
+    BatteryVision.Trigger := TRUE;
+    Inspection_Requested := TRUE;
+    Inspection_Timer_Start := TRUE;      // site-standard timer
+END_IF;
+
+IF BatteryVision.Busy THEN
+    BatteryVision.Trigger := FALSE;      // rearm the station
+END_IF;
+
+// Silence is not a pass. No Busy within the expected window is a fault.
+IF Inspection_Timeout AND NOT BatteryVision.Complete THEN
+    Product_Inhibit := TRUE;
+    Station_Fault := TRUE;
+END_IF;</code></pre>
+</section>
+
+<section class="part">
+  <div class="part-head"><span class="part-num">7</span><h2>Verification</h2></div>
+
+  <p>Perform against the real controller and the real program revision. Record what is observed, not what is configured.</p>
+
+  <ol class="check">
+    <li>Every tag exists with the type in section 2.</li>
+    <li>Station connects; the idle row is written (all four outputs 0).</li>
+    <li><code>Heartbeat</code> changes state about once per configured interval.</li>
+    <li>The watchdog stays healthy while an inspection is running.</li>
+    <li>A known-good part gives <code>Complete=1, Pass=1, Fail=0</code>.</li>
+    <li>A known-reject part gives <code>Complete=1, Pass=0, Fail=1</code>.</li>
+    <li><code>Pass</code> and <code>Fail</code> are never both high.</li>
+    <li>Holding <code>Trigger</code> high produces exactly one inspection.</li>
+    <li>A trigger pulsed entirely during <code>Busy</code> produces no second cycle, and the timeout logic fires.</li>
+    <li>Requesting a recipe the station does not have produces no result, and the timeout logic fires.</li>
+    <li>A manual inspection at the HMI leaves every PLC tag unchanged.</li>
+    <li>Bypass enabled at the HMI sets the tag; disabled clears it.</li>
+    <li>A cycle with bypass on still publishes the real result.</li>
+    <li>Pulling the network cable mid-cycle: outputs freeze, the watchdog trips, the line ends up safe.</li>
+    <li><em>Acknowledge configured:</em> raising the bit clears all four outputs.</li>
+    <li><em>Acknowledge configured:</em> holding the bit high does not clear the next cycle's result.</li>
+  </ol>
+</section>
+
+<footer>
+  <p><strong>Pole Position PLC Interface Control Document, Rev A, for application v0.25.0.</strong> Generated from the station's own interface specification by <code>scripts/build_plc_icd.py</code>. Where this document and the station's behaviour disagree, the station is right and this document needs correcting.</p>
+  <p>This document is an unapproved draft and is not a controlled record until your quality process makes it one.</p>
+</footer>
