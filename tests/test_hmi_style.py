@@ -65,38 +65,27 @@ def test_pole_position_brand_and_icon_are_wired_into_the_hmi() -> None:
     assert image_count >= 6
 
 
-def test_scrolling_exists_only_as_the_sanctioned_overflow_container() -> None:
-    """Station pages fit and paginate. Exactly one exception is allowed.
+def test_primary_ui_contains_no_scroll_area() -> None:
+    """Station pages fit their screen. They do not scroll, ever.
 
-    The rule this replaces forbade QScrollArea outright, and it was the right
-    instinct: an operator should never have to hunt for a control that is off
-    screen. It could not hold in practice. The window's minimum is shorter than
-    several pages need, and Windows display scaling makes the workspace smaller
-    still -- a 4K panel at 150% reports 1280x720. A layout denied the room it
-    needs does not refuse; it compresses its children until wrapped text and
-    image panels draw over each other, which is worse than a scroll bar and far
-    harder to notice.
+    An operator must never have to hunt for a control that is off screen, and a
+    scroll bar on a station page is a design fault reported as a feature. This
+    was briefly relaxed to a sanctioned overflow container, because several
+    pages did not fit the station's minimum window and a layout denied room
+    compresses its children until wrapped text draws over the controls beneath
+    it -- overlap being worse than a scroll bar, and harder to notice.
 
-    So scrolling is permitted only through VerticalScrollArea, only as the
-    container MainWindow puts every page behind, and it shows nothing at all
-    when the page fits -- which on a correctly specified station is always.
-    Pages themselves still must not scroll their own content: a page that needs
-    to scroll on a normal workspace is a page to redesign, and
-    test_no_page_is_compressed_at_any_workspace_size measures that directly.
+    Both were symptoms of the same thing: pages asking for more height than the
+    window guarantees. The pages were made to fit instead, and
+    test_no_page_is_compressed_at_any_workspace_size measures that they still
+    do. A page that needs to scroll is a page to redesign.
     """
 
-    for path in sorted(UI.rglob("*.py")):
-        source = path.read_text(encoding="utf-8")
-        if "QScrollArea" not in source and "VerticalScrollArea" not in source:
-            continue
-        if path.name == "widgets.py":
-            continue
-        assert "QScrollArea" not in source, (
-            f"{path.name} builds its own scroll area; use VerticalScrollArea"
-        )
-        assert path.name == "main_window.py", (
-            f"{path.name} scrolls its own content; only MainWindow may scroll a page"
-        )
+    python_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in UI.rglob("*.py")
+    )
+    assert "QScrollArea" not in python_sources
 
 
 def test_scrollbar_chrome_is_suppressed() -> None:
@@ -207,7 +196,10 @@ def test_ml_training_is_a_guided_scrollbar_free_hmi_page() -> None:
     assert "CAPTURE MULTIPLE TERMINAL TOPS FROM ONE FRAME" in source
     assert "ACTIVE ROI — EXACT ML INPUT" not in source
     assert "self.crop_preview" not in source
-    assert "targets are guidance only" in source.lower()
+    # The page must still say targets do not gate training. The wording was
+    # shortened so the note wraps to two lines at the station's minimum width.
+    assert "targets are guidance" in source.lower()
+    assert "never block training" in source.lower()
     assert "crop_confirm" not in source
     assert "I verified this crop excludes the red ring" not in source
     assert "REVIEW / CORRECT TRAINING DATA" in source

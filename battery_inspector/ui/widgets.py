@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -35,41 +34,6 @@ from battery_inspector.ui.palette import (
 
 # Re-export the state colors for existing UI modules.
 MUTED = TEXT_MUTED
-
-
-class VerticalScrollArea(QScrollArea):
-    """A vertical scroll container that never squeezes what it holds.
-
-    When a layout runs out of vertical room, Qt compresses its children below
-    the size each one asked for, and widgets whose height depends on their width
-    -- wrapped text above all -- end up drawn over their neighbours. The page
-    that looked right on the monitor it was designed on overlaps itself on a
-    shorter one. Windows display scaling makes that common rather than
-    exceptional: a 3840x2160 monitor at 150% offers a 1280x720 workspace, less
-    height than this application's own minimum window.
-
-    Scrolling instead of compressing keeps every element at its designed size on
-    every monitor and at every scale factor, which is the only way a station
-    screen can be relied on not to shift.
-    """
-
-    def __init__(self, content: QWidget, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        # The global stylesheet hides scroll bars, because a station page is
-        # meant to fit its screen and paginate rather than scroll. This object
-        # name restores a visible bar for these panels only, so that when the
-        # workspace really is too short the operator can see that there is more
-        # below instead of silently losing it.
-        self.setObjectName("ScrollPanel")
-        self.setWidget(content)
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        # Vertical only. A horizontal bar would mean content narrower than the
-        # panel, which is a layout fault to fix rather than to scroll past.
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.viewport().setAutoFillBackground(False)
-        content.setAutoFillBackground(False)
 
 
 class PanelFrame(QFrame):
@@ -207,8 +171,13 @@ class LabeledValue(QWidget):
     def __init__(self, caption: str, value: str = "—", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 3, 0, 3)
-        layout.setSpacing(2)
+        # Tight on purpose. Overview stacks seven of these and Recipes eleven,
+        # so the padding around a caption and its value is what decides whether
+        # those pages fit the station's minimum window. The pair still reads as
+        # a pair: the caption is small, muted, and uppercase against a larger
+        # value, which separates them without needing space to do it.
+        layout.setContentsMargins(0, 1, 0, 1)
+        layout.setSpacing(1)
         self.caption = QLabel(caption.upper())
         self.caption.setProperty("muted", True)
         self.caption.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {TEXT_MUTED};")

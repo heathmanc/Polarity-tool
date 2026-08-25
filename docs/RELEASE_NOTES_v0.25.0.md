@@ -57,6 +57,34 @@ IF NOT BatteryVision.Complete THEN
 END_IF;
 ```
 
+## Station pages fit again, without scroll bars
+
+v0.24.0 put every page behind a scroll view because several pages asked for
+more height than the station's minimum window guarantees, and a layout denied
+room compresses its children until wrapped text draws over the controls
+beneath it. That traded an overlap for a scroll bar. Neither belongs on a
+station page: an operator should never have to hunt for a control that is off
+screen.
+
+The pages were made to fit instead, and the scroll views are gone.
+
+- The **ML training** page was the worst, and not where it looked. A stacked
+  widget is as tall as its tallest page, so the review step's two rows of
+  thumbnails put a scroll bar on the capture step, which fits comfortably on
+  its own. Review now shows four thumbnails in one row. Each crop gets about
+  265px of width at the minimum window instead of 180, which makes a stamp
+  easier to judge, at the cost of four samples per page rather than six.
+- **Overview** and **Recipes** are dominated by stacked caption-and-value
+  pairs -- seven and eleven of them. The padding inside that pair was reduced,
+  which is what those two pages were over by.
+- Two long notes that wrapped to four lines at the minimum width were
+  shortened, and a dataset scope line that was being clipped at the panel edge
+  now wraps.
+
+Every page now fits the station's minimum window with 33 to 48 pixels to
+spare. The rule forbidding scroll areas in the HMI is restored, and the test
+that measures layout compression directly is what keeps the pages honest.
+
 ## Documentation
 
 - `docs/PLC_INTERFACE.md` describes both result lifetimes, the edge rules, and

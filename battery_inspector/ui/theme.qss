@@ -308,37 +308,3 @@ QScrollBar:horizontal {
     height: 0px;
     background: transparent;
 }
-
-/* A panel that scrolls only because the workspace is shorter than the page
-   needs -- a short monitor, or Windows display scaling -- must show that there
-   is more content below, so these override the hidden bars above. */
-QScrollArea#ScrollPanel {
-    background: transparent;
-}
-
-QScrollArea#ScrollPanel QScrollBar:vertical {
-    width: 12px;
-    background: #E4E7E9;
-    border: none;
-    margin: 0px;
-}
-
-QScrollArea#ScrollPanel QScrollBar::handle:vertical {
-    background: #5E686E;
-    min-height: 32px;
-    border-radius: 2px;
-}
-
-QScrollArea#ScrollPanel QScrollBar::handle:vertical:hover {
-    background: #3F4A50;
-}
-
-QScrollArea#ScrollPanel QScrollBar::add-line:vertical,
-QScrollArea#ScrollPanel QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-
-QScrollArea#ScrollPanel QScrollBar::add-page:vertical,
-QScrollArea#ScrollPanel QScrollBar::sub-page:vertical {
-    background: transparent;
-}

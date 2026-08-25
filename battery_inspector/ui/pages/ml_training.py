@@ -55,7 +55,13 @@ from battery_inspector.ui.widgets import (
 # Review-grid geometry. These are floors, not fixed sizes: the cards grow with
 # the workspace and stop shrinking at the point where a terminal-top crop stops
 # being judgeable and the controls under it stop being separable.
-REVIEW_GRID_COLUMNS = 3
+# One row, four cards. Two rows of thumbnails made the review step the tallest
+# step in the wizard, and a stacked widget is as tall as its tallest page -- so
+# the capture step, which fits comfortably on its own, inherited the review
+# step's overflow. Four across also gives each crop about 265px of width at the
+# station's minimum window, half again what three-across-two-rows allowed, and
+# a terminal stamp is easier to judge larger.
+REVIEW_GRID_COLUMNS = 4
 REVIEW_CARD_MIN_WIDTH = 210
 REVIEW_CARD_MIN_HEIGHT = 200
 REVIEW_META_LINES = 2
@@ -583,15 +589,21 @@ class MlTrainingPage(QWidget):
         title = QLabel("REVIEW / CORRECT TRAINING DATA")
         title.setObjectName("PanelTitle")
         header_layout.addWidget(title)
+        # Kept to two lines at the station's minimum width. A wrapped label
+        # reports a minimum height for one line, so prose that wraps to four
+        # takes the extra out of whatever sits below it.
         note = QLabel(
-            "Review the persistent global terminal-top dataset before training. "
-            "Correct a class label or remove a bad crop here; you do not need to browse folders. "
-            "Collection targets are guidance only and never block training by themselves."
+            "Correct a class label or remove a bad crop before training. "
+            "Collection targets are guidance and never block training."
         )
         note.setWordWrap(True)
         note.setProperty("muted", True)
         header_layout.addWidget(note)
         self.review_scope = QLabel("Dataset scope will appear after samples are captured.")
+        # Wrapped rather than clipped. This line grows with the number of family
+        # tags, and at the station's minimum width it was being cut off at the
+        # panel edge with no indication that anything was missing.
+        self.review_scope.setWordWrap(True)
         self.review_scope.setProperty("muted", True)
         header_layout.addWidget(self.review_scope)
         root.addWidget(header)
@@ -616,7 +628,7 @@ class MlTrainingPage(QWidget):
         root.addLayout(filters)
 
         self._review_page_index = 0
-        self._review_page_size = 6
+        self._review_page_size = REVIEW_GRID_COLUMNS
         self._review_filtered_samples: list[dict[str, Any]] = []
         self.review_cards: list[dict[str, Any]] = []
         grid_host = QWidget()
