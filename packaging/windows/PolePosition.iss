@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.23.4"
+  #define AppVersion "0.24.0"
 #endif
 #ifndef PylonRuntimeFile
   #error PylonRuntimeFile must name the official Basler pylon Runtime redistributable.

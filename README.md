@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.23.4** source
+This README is the current project and handoff guide for the **v0.24.0** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.23.4` |
-| Release tag | `v0.23.4` |
+| Application version | `0.24.0` |
+| Release tag | `v0.24.0` |
 | Tagged commit | `acb8b16dd70845c8624805a744a811fb29c42403` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -66,13 +66,23 @@ Recorded project status at this handoff point:
   numbered recipes, the invalid-marking class, counter reset, silver/brass
   checks, Pole Position branding, workstation backup/restore, and the Windows
   installer system.
-- The v0.23.4 installer build has completed successfully on the Windows build
-  computer after the v0.23.1-v0.23.4 packaging corrections were applied.
+- v0.24.0 corrects a recipe-editor defect that could clear a saved terminal's
+  red-ring requirement, marks the rejecting terminal in red on the operator
+  screen, stops station pages compressing into overlap on scaled displays, and
+  repairs the Windows build so a CUDA request is not silently replaced by a
+  CPU-only PyTorch. See `docs/RELEASE_NOTES_v0.24.0.md`.
+- The v0.24.0 installer build has completed on the Windows build computer.
+- **Open at this handoff point:** a reported pass on a part that should have
+  rejected has not been reproduced or explained. The recipe-editor defect
+  corrected in v0.24.0 accounts for the reported display symptom but has not
+  been shown to account for a wrong grade. No station may run production until
+  `scripts/diagnose_station.py` reports clean and known-good and known-reject
+  parts have been run on the physical fixture.
 - The installer self-check verifies packaged software, not the real camera,
   PLC, model performance, or station mechanics. Complete site acceptance is
   still required for every deployed station and trained model.
 
-The repository contains 203 pytest test functions plus four command-line smoke
+The repository contains 380 pytest test functions plus four command-line smoke
 and installation checks. Their presence is not a substitute for recording the
 exact test results from the release environment.
 
@@ -261,7 +271,7 @@ behavior, and viewing distance must be accepted at the station.
 | Controls engineering | Logix tags, trigger/result timing, recipe selector, heartbeat watchdog, bypass/interlock logic, recovery testing |
 | Software / release owner | Source control, tests, versioning, dependencies, installer build/signing, release artifacts, documentation |
 
-These are procedural roles only. v0.23.4 does not enforce role-based access in
+These are procedural roles only. v0.24.0 does not enforce role-based access in
 software. The editable “Current technician” name is audit attribution, not an
 authenticated identity.
 
@@ -322,7 +332,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.23.4-Setup-x64.exe
+Pole-Position-v0.24.0-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -667,7 +677,7 @@ The single configured recipe selector tag can be interpreted as:
 The received value must match the active recipe before a PLC trigger is
 accepted. Recipe numbers are stable across revisions.
 
-As built in v0.23.4, a mismatched requested recipe is logged and the trigger is
+As built in v0.24.0, a mismatched requested recipe is logged and the trigger is
 ignored; the HMI does not start a cycle or publish a synthetic FAIL for that
 edge. The PLC must prevent product advance and implement its site-standard
 timeout/fault response to a request that does not produce Busy/Complete.
@@ -692,7 +702,7 @@ Exactly one result bit is true whenever `Complete` is published. REJECT,
 NOT READY, acquisition failure, and internal fault all map to `Fail` when the
 cycle was initiated by the PLC.
 
-**As-built result lifetime:** v0.23.4 has no result sequence number,
+**As-built result lifetime:** v0.24.0 has no result sequence number,
 acknowledgement tag, or complete-clear-on-trigger-low state. The completed row
 remains written after the cycle. It is cleared when the next accepted cycle
 writes Busy or when PLC settings are connected/applied and the idle row is
@@ -1068,9 +1078,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.23.4-Setup-x64.exe
-dist\windows\Pole-Position-v0.23.4-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.23.4-requirements-lock.txt
+dist\windows\Pole-Position-v0.24.0-Setup-x64.exe
+dist\windows\Pole-Position-v0.24.0-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.24.0-requirements-lock.txt
 ```
 
 The build:
@@ -1184,7 +1194,7 @@ no-decision, and localization failure rates against approved limits.
 | HMI shows Demo fallback | Camera source is Auto and no usable Basler device opened. Correct hardware and apply/test, or select Basler required for production fail-closed behavior |
 | PLC stays faulted | Confirm pycomm3 mode, Logix route, network, tag names/types, output BOOL writability, selector type, bypass tag, and heartbeat write. It will not fall back automatically |
 | PLC trigger does nothing | Trigger needs a new rising edge; requested recipe must match active recipe; PLC polling must be healthy; camera may have one queued PLC cycle |
-| PLC waits forever for Complete to clear | v0.23.4 latches the completed result until the next Busy or reconnect/apply. There is no ack/clear-on-trigger-low state |
+| PLC waits forever for Complete to clear | v0.24.0 latches the completed result until the next Busy or reconnect/apply. There is no ack/clear-on-trigger-low state |
 | Complete arrives with Fail | Inspect HMI detail/evidence. Every non-PASS PLC cycle maps to Fail; there is no reason code |
 | PASS has no evidence folder/export | Expected memory-only PASS policy |
 | Counter reset did not remove evidence | Expected; it clears only session totals/recent strip |
@@ -1271,7 +1281,7 @@ The following are current as-built boundaries, not hidden completed features:
   quality signals only.
 - **Generated manuals are not tracked by default.** `output/` is Git-ignored.
   Include a revision-matched approved PDF deliberately in the handoff package;
-  do not assume an arbitrary local generated file matches v0.23.4.
+  do not assume an arbitrary local generated file matches v0.24.0.
 - **Unsigned installers can trigger SmartScreen.** Production distribution
   should use organizational code signing.
 
@@ -1377,6 +1387,7 @@ this README, current source, or current subsystem documents.
 | Release | Main change |
 | --- | --- |
 | v0.23.4 | Absolute-path Inno Setup compilation; successful final installer path |
+| v0.24.0 | Recipe-editor gate preservation; rejecting terminal marked red; page layout no longer compresses on scaled displays; CUDA PyTorch retained through the build |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1412,7 +1423,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.23.4 installer, `.sha256`, and requirements lock
+- [ ] v0.24.0 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

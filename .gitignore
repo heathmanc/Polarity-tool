@@ -20,3 +20,6 @@ models/*.onnx
 models/*.pt
 models/polarity_classifier.json
 models/training_runs/
+
+# Assembled operator handbook: rebuilt from docs/manual/ by scripts/build_manual.py
+build/manual/

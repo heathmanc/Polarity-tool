@@ -33,7 +33,7 @@ internal fault all publish the same binary FAIL output.
 
 ### As-built result lifetime
 
-v0.23.4 has no result sequence, acknowledgement tag, or automatic
+v0.24.0 has no result sequence, acknowledgement tag, or automatic
 complete-clear when Trigger returns low. The completed state remains written
 until the next accepted cycle publishes Busy, or until PLC settings are
 connected/applied and the HMI verifies the idle row. Trigger must be observed
@@ -91,7 +91,7 @@ of:
 The active recipe must match the received name or number before a PLC trigger is
 accepted. Recipe numbers remain unchanged across revisions.
 
-When the requested recipe does not match, v0.23.4 logs the mismatch and ignores
+When the requested recipe does not match, v0.24.0 logs the mismatch and ignores
 that trigger edge; it does not publish a synthetic FAIL transaction. The PLC
 must keep the product inhibited and apply its site-standard timeout/fault logic
 when Busy/Complete does not follow a request.
