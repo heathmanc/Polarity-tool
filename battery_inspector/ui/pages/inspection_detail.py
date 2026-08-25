@@ -27,6 +27,7 @@ from battery_inspector.models import (
 )
 from battery_inspector.ui.image_widgets import CropPreview, ImageOverlayWidget, OverlaySpec
 from battery_inspector.ui.palette import (
+    FAILED_MARKING_LINE_WIDTH,
     ROLE_NEGATIVE,
     ROLE_POSITIVE,
     ROI_MARKING,
@@ -173,19 +174,24 @@ class TerminalResultCard(PanelFrame):
         else:
             self.terminal_view.set_image(terminal_path)
         if terminal_available and self._recipe is not None:
+            # Same convention as the operator view: the region that rejected the
+            # part is red and heavier, so the two screens do not disagree about
+            # which terminal is at fault.
+            failed = not result.passed
+            shape_label = (
+                "MARKING CIRCLE"
+                if self._recipe.marking_roi_shape == "circle"
+                else "MARKING ROI"
+            )
             self.terminal_view.set_overlays(
                 [
                     OverlaySpec(
                         key="marking",
                         rect=self._recipe.marking_roi,
-                        label=(
-                            "MARKING CIRCLE"
-                            if self._recipe.marking_roi_shape == "circle"
-                            else "MARKING ROI"
-                        ),
-                        color=ROI_MARKING,
+                        label=f"{shape_label} — REJECT" if failed else shape_label,
+                        color=BAD if failed else ROI_MARKING,
                         dashed=True,
-                        line_width=3,
+                        line_width=FAILED_MARKING_LINE_WIDTH if failed else 3,
                         shape=self._recipe.marking_roi_shape,
                     )
                 ]

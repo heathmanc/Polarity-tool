@@ -13,15 +13,19 @@ the operator is shown is the contract the ISA-101 style guide describes.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from battery_inspector.models import (
     InspectionCycleState,
     InspectionCycleStatus,
+    InspectionDisposition,
+    InspectionResult,
     Marking,
     NormalizedRect,
     Recipe,
     TerminalFinish,
+    TerminalInspection,
     TerminalRecipe,
     TerminalRole,
 )
@@ -419,3 +423,87 @@ def test_a_recipe_survives_being_reopened_and_saved_again(qapp, controller) -> N
     finally:
         dialog.reject()
         qapp.processEvents()
+
+
+def _inspected_terminal(*, detected: Marking) -> TerminalInspection:
+    return TerminalInspection(
+        terminal_key="positive",
+        terminal_name="Positive Terminal",
+        role=TerminalRole.POSITIVE,
+        expected_marking=Marking.PLUS,
+        detected_marking=detected,
+        marking_confidence=0.99,
+        red_ring_expected=False,
+        red_ring_detected=False,
+        red_ring_confidence=0.0,
+        terminal_polygon=[(0.1, 0.1), (0.3, 0.1), (0.3, 0.3), (0.1, 0.3)],
+        marking_polygon=[(0.15, 0.15), (0.25, 0.15), (0.25, 0.25), (0.15, 0.25)],
+    )
+
+
+def _overlay_for(page, suffix: str):
+    return next(
+        overlay
+        for overlay in page.image._polygon_overlays
+        if overlay.key.endswith(suffix)
+    )
+
+
+@pytest.mark.parametrize(
+    "detected,should_fail", [(Marking.PLUS, False), (Marking.MINUS, True)]
+)
+def test_the_terminal_that_rejected_the_part_is_drawn_red_and_heavier(
+    qapp, window, controller, detected, should_fail
+) -> None:
+    """An operator has to see which terminal rejected the part from the line.
+
+    Role colour identifies a terminal that passed. Red, and a heavier line, is
+    reserved for the one that did not, so the reason for a reject is legible at
+    station distance instead of only on the detail page.
+    """
+
+    from battery_inspector.ui.palette import (
+        FAILED_MARKING_LINE_WIDTH,
+        FAILED_ROI_LINE_WIDTH,
+        ROI_MARKING,
+        ROLE_POSITIVE,
+    )
+    from battery_inspector.ui.widgets import BAD
+
+    terminal = _inspected_terminal(detected=detected)
+    assert terminal.passed is not should_fail
+    image = np.full((64, 64, 3), 120, dtype=np.uint8)
+    result = InspectionResult.create(
+        recipe=None,
+        disposition=(
+            InspectionDisposition.REJECT if should_fail else InspectionDisposition.PASS
+        ),
+        reason="TEST",
+        duration_ms=5,
+        trigger_source="MANUAL",
+        image_quality="GOOD",
+        full_image_path="",
+        terminals=[terminal],
+        frame_id="FRAME-1",
+        analysis_ready=True,
+        full_image=image,
+        battery_polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+    )
+    result.recipe_id = "RECIPE-1"
+
+    page = window.page_at(MainWindow.OVERVIEW)
+    page.set_inspection(result)
+    qapp.processEvents()
+
+    search = _overlay_for(page, "-search")
+    marking = _overlay_for(page, "-marking")
+    if should_fail:
+        assert search.color == BAD
+        assert search.line_width == FAILED_ROI_LINE_WIDTH
+        assert marking.color == BAD
+        assert marking.line_width == FAILED_MARKING_LINE_WIDTH
+        assert "REJECT" in search.label
+    else:
+        assert search.color == ROLE_POSITIVE
+        assert marking.color == ROI_MARKING
+        assert search.line_width < FAILED_ROI_LINE_WIDTH

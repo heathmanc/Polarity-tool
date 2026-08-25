@@ -28,6 +28,8 @@ from battery_inspector.ui.image_widgets import (
 from battery_inspector.ui.palette import (
     AMBER_BG,
     BORDER_LIGHT,
+    FAILED_MARKING_LINE_WIDTH,
+    FAILED_ROI_LINE_WIDTH,
     ROI_AUXILIARY,
     ROI_BATTERY,
     ROI_MARKING,
@@ -369,15 +371,27 @@ class OverviewPage(QWidget):
                     "auxiliary": ROI_AUXILIARY,
                 }
                 for index, terminal in enumerate(result.terminals, start=1):
-                    color = role_colors.get(terminal.role.value, ROI_AUXILIARY)
+                    # A terminal that failed is drawn in the reject colour and
+                    # heavier, so the operator sees which terminal rejected the
+                    # part from across the station rather than by reading the
+                    # detail page. Role colour still identifies a terminal that
+                    # passed; red is reserved for the one that did not.
+                    failed = not terminal.passed
+                    color = (
+                        BAD if failed else role_colors.get(terminal.role.value, ROI_AUXILIARY)
+                    )
                     if terminal.terminal_polygon:
                         polygon_overlays.append(
                             PolygonOverlaySpec(
                                 key=f"{terminal.terminal_key}-search",
                                 points=terminal.terminal_polygon,
-                                label=f"{index} {terminal.role.display}",
+                                label=(
+                                    f"{index} {terminal.role.display} — REJECT"
+                                    if failed
+                                    else f"{index} {terminal.role.display}"
+                                ),
                                 color=color,
-                                line_width=3,
+                                line_width=FAILED_ROI_LINE_WIDTH if failed else 3,
                             )
                         )
                     if terminal.marking_polygon:
@@ -386,9 +400,9 @@ class OverviewPage(QWidget):
                                 key=f"{terminal.terminal_key}-marking",
                                 points=terminal.marking_polygon,
                                 label="MARKING ROI",
-                                color=ROI_MARKING,
+                                color=BAD if failed else ROI_MARKING,
                                 dashed=True,
-                                line_width=2,
+                                line_width=FAILED_MARKING_LINE_WIDTH if failed else 2,
                             )
                         )
             else:

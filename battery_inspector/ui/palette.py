@@ -67,3 +67,9 @@ def background_for_color(color: str) -> str:
     if normalized == AMBER.upper():
         return AMBER_BG
     return SURFACE_ALT
+
+# A region that rejected the part is drawn in BAD and heavier than a region
+# that passed. The weight difference has to survive being read at station
+# distance on a glare-lit floor, where hue alone does not carry.
+FAILED_ROI_LINE_WIDTH = 6
+FAILED_MARKING_LINE_WIDTH = 4
