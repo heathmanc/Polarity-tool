@@ -476,3 +476,27 @@ def test_the_installer_compresses_in_parallel_within_the_compiler_address_space(
     build = (WINDOWS / "build-installer.ps1").read_text(encoding="utf-8")
     assert "/DCompressionThreads=$CompressionThreads" in build
     assert "[ValidateRange(1, 8)]" in build
+
+
+def test_both_builds_check_the_interpreter_before_trying_to_run_it() -> None:
+    """A missing interpreter path must not read as a broken script.
+
+    PowerShell resolves `& $PythonCommand` as a command name, so a path that
+    does not exist -- a virtual environment that was deleted or moved is the
+    usual way -- comes back as "is not recognized as the name of a cmdlet",
+    naming the build script in the error. That sends the reader after the
+    wrong thing.
+    """
+
+    for script_path in (LOCAL_BUILD, RELEASE_BUILD):
+        script = script_path.read_text(encoding="utf-8")
+        guard = script.find("No interpreter at")
+        probe = script.find("$PythonProbe = & $PythonCommand")
+        assert guard != -1, f"{script_path.name}: no missing-interpreter check"
+        assert probe != -1, f"{script_path.name}: interpreter probe not found"
+        assert guard < probe, (
+            f"{script_path.name}: the check must run before the interpreter does"
+        )
+        assert "is not on PATH" in script, (
+            f"{script_path.name}: a bare command name needs its own message"
+        )

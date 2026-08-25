@@ -197,6 +197,18 @@ Write-Step "Pole Position v$Version - local Windows build"
 
 # --- interpreter -----------------------------------------------------------
 
+# A path that does not exist reaches `& $PythonCommand` as a command name, and
+# PowerShell reports it as an unrecognised cmdlet -- which reads as though the
+# script were broken rather than as a missing interpreter. Say what is actually
+# wrong, and say it before anything else has run.
+if ($PythonCommand -match "[\\/]") {
+    if (-not (Test-Path -LiteralPath $PythonCommand -PathType Leaf)) {
+        throw "No interpreter at $PythonCommand. Pass -PythonCommand with the path to a Python 3.11 x64 executable, or omit it to use the 'python' on PATH. A virtual environment that has been deleted or moved is the usual cause; this build creates its own environment and only needs a 3.11 interpreter to start from."
+    }
+} elseif (-not (Get-Command $PythonCommand -ErrorAction SilentlyContinue)) {
+    throw "'$PythonCommand' is not on PATH. Pass -PythonCommand with the full path to a Python 3.11 x64 executable."
+}
+
 $PythonProbeCode = "import platform,struct,sys;print(str(sys.version_info.major)+chr(46)+str(sys.version_info.minor),struct.calcsize(chr(80))*8,platform.machine(),sep=chr(124))"
 $PythonProbe = & $PythonCommand @("-c", $PythonProbeCode)
 if ($LASTEXITCODE -ne 0) {
