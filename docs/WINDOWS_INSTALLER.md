@@ -206,6 +206,28 @@ Pole-Position-v0.23.4-requirements-lock.txt
 The intermediate frozen directory and dependency manifest remain under
 `build\windows` for troubleshooting.
 
+### "Out of memory" from the Inno Setup compiler
+
+The machine's RAM is not the limit. `ISCC.exe` is a 32-bit process, so it can
+address about 2 GB whatever the workstation has installed, and an `lzma2/ultra64`
+stream uses a 64 MB dictionary whose encoder needs roughly ten times that --
+about 700 MB per block thread. Enough threads and the compile aborts with
+`Out of memory` on a machine with 64 GB free.
+
+The build ships two threads and moves the compressor out of the compiler's
+address space with `LZMAUseSeparateProcess=yes`. If a build still runs out,
+drop to one:
+
+```powershell
+.\packaging\windows\build-installer.ps1 `
+  -PylonRuntime "C:\Installers\pylon_Runtime_x64.exe" `
+  -CompressionThreads 1
+```
+
+One thread always fits; it is how the installer was compressed before v0.24.0.
+It is also slow and silent, so read the section below before deciding a
+single-threaded compile has hung.
+
 ### A build that looks hung at "Preprocessing"
 
 Inno Setup prints `Preprocessing` and then says nothing at all until the

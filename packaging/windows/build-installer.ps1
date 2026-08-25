@@ -18,6 +18,12 @@ param(
 
     [string]$TimestampUrl = "http://timestamp.digicert.com",
 
+    # Bounded by the compiler's address space, not by the machine's RAM: ISCC
+    # is a 32-bit process and each LZMA2 block thread needs roughly 700 MB for
+    # an ultra64 dictionary. Drop to 1 if a build aborts with "Out of memory".
+    [ValidateRange(1, 8)]
+    [int]$CompressionThreads = 2,
+
     [switch]$Clean
 )
 
@@ -305,6 +311,7 @@ foreach ($RequiredInput in $RequiredInstallerInputs) {
 }
 $InnoArguments = @(
     "/Qp",
+    "/DCompressionThreads=$CompressionThreads",
     "/DAppVersion=$Version",
     "/DPylonRuntimeFile=$PylonRuntime",
     "/DFrozenAppDirectory=$AppDirectory",

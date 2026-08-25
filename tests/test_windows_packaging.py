@@ -444,16 +444,35 @@ def test_the_local_build_refuses_to_ship_a_cpu_bundle_that_asked_for_cuda() -> N
         assert "but the installed build is CPU-only" in script, script_path.name
 
 
-def test_the_installer_compresses_its_payload_in_parallel() -> None:
-    """A single-threaded solid stream over this payload takes hours.
+def test_the_installer_compresses_in_parallel_within_the_compiler_address_space() -> None:
+    """Two competing limits, and the payload sits between them.
 
-    The installer carries the frozen station and the CUDA training runtime --
-    several gigabytes -- and Inno Setup's LZMA2 uses one thread unless told
-    otherwise, printing nothing while it works. That looked like a hang.
+    Inno Setup's LZMA2 uses one thread unless told otherwise, and a solid
+    ultra64 stream over the frozen station plus the CUDA training runtime takes
+    hours that way, printing nothing -- which looks like a hang. But ISCC is a
+    32-bit process, and an ultra64 dictionary costs roughly 700 MB per block
+    thread, so four threads aborted the compile with "Out of memory" on a
+    workstation with 64 GB installed.
+
+    So: more than one thread, few enough to fit, the compressor moved out of
+    the compiler's address space, and the count overridable per build.
     """
 
     installer = (WINDOWS / "PolePosition.iss").read_text(encoding="utf-8")
 
-    match = re.search(r"^LZMANumBlockThreads=(\d+)", installer, re.M)
-    assert match is not None, "LZMA2 would compress the payload single-threaded"
-    assert int(match.group(1)) > 1
+    assert "LZMANumBlockThreads={#CompressionThreads}" in installer, (
+        "the thread count must be overridable per build"
+    )
+    assert re.search(r"^LZMAUseSeparateProcess=yes", installer, re.M), (
+        "the compressor must not be confined to the 32-bit compiler's memory"
+    )
+
+    default = re.search(r'#define CompressionThreads "(\d+)"', installer)
+    assert default is not None, "the thread count needs a default"
+    assert 1 < int(default.group(1)) <= 2, (
+        "the default must be parallel but must fit a 32-bit compiler"
+    )
+
+    build = (WINDOWS / "build-installer.ps1").read_text(encoding="utf-8")
+    assert "/DCompressionThreads=$CompressionThreads" in build
+    assert "[ValidateRange(1, 8)]" in build

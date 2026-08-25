@@ -16,6 +16,9 @@
 #ifndef AppIconFile
   #error AppIconFile must name the absolute Pole Position icon file.
 #endif
+#ifndef CompressionThreads
+  #define CompressionThreads "2"
+#endif
 
 #define AppName "Pole Position"
 #define AppPublisher "Pole Position"
@@ -39,9 +42,18 @@ SolidCompression=yes
 ; The payload is the whole frozen station plus the CUDA training runtime, which
 ; runs to several gigabytes. LZMA2 compresses with one thread by default, and a
 ; solid ultra64 stream over that much data takes hours on a single core with the
-; compiler showing no progress the entire time. Splitting it across four threads
-; keeps the compression level and costs a low single-digit percentage of ratio.
-LZMANumBlockThreads=4
+; compiler printing nothing the entire time. Extra block threads keep the
+; compression level and cost a low single-digit percentage of ratio.
+;
+; Thread count is bounded by address space, not by the machine. ISCC is a
+; 32-bit process, and an ultra64 stream uses a 64 MB dictionary whose encoder
+; needs roughly ten times that -- about 700 MB per block thread. Four threads
+; exceeded what a 32-bit process can address and the compile aborted with "Out
+; of memory" on a workstation with 64 GB installed. Two is the default here;
+; pass -CompressionThreads to build-installer.ps1 to change it, and use 1 if a
+; build still runs out.
+LZMAUseSeparateProcess=yes
+LZMANumBlockThreads={#CompressionThreads}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
