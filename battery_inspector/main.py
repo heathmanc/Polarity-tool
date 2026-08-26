@@ -24,6 +24,7 @@ from battery_inspector.controller import AppController  # noqa: E402
 from battery_inspector.paths import resource_root, station_root  # noqa: E402
 from battery_inspector.station_transfer import apply_pending_restore  # noqa: E402
 from battery_inspector.ui import MainWindow  # noqa: E402
+from battery_inspector.ui.widgets import WheelValueGuard  # noqa: E402
 
 
 def _ensure_standard_streams(station: Path) -> None:
@@ -194,6 +195,9 @@ def main() -> int:
         print(f"Pole Position v0.17 clean baseline: archived bench runtime to {_baseline.get('archive', '')}")
 
     app = QApplication(sys.argv)
+    # Before any window exists, so every dialog opened later is covered too.
+    wheel_guard = WheelValueGuard(app)
+    app.installEventFilter(wheel_guard)
     app.setApplicationName("Pole Position")
     app.setApplicationDisplayName("Pole Position")
     app.setOrganizationName("Pole Position")

@@ -968,6 +968,110 @@ def evaluate_onnx_model(
     }
 
 
+def _ultralytics_summary(model: Any, trained: Any, run_directory: Path) -> dict[str, Any]:
+    """Harvest what Ultralytics reports about the run it just finished.
+
+    Our own held-out ONNX evaluation is the number that decides whether a
+    candidate may be installed, because it measures the exported artefact under
+    production confidence and margin rules. What Ultralytics knows is different
+    and still worth having: whether training converged or was cut short, which
+    epoch was kept, how big and how fast the model is, and how it scored on the
+    validation split it was tuning against.
+
+    Every read is defensive. The attributes here move between Ultralytics
+    releases, and a missing metric is a gap in a report, not a reason to throw
+    away a model that trained successfully.
+    """
+
+    summary: dict[str, Any] = {}
+
+    def number(value: Any) -> float | None:
+        try:
+            result = float(value)
+        except (TypeError, ValueError):
+            return None
+        return result if result == result else None  # drop NaN
+
+    trainer = getattr(model, "trainer", None)
+
+    # Validation metrics from the final epoch, named as Ultralytics names them
+    # so they can be matched against its own output.
+    raw_metrics = getattr(trainer, "metrics", None) or {}
+    try:
+        metrics = {
+            str(key): number(value)
+            for key, value in dict(raw_metrics).items()
+        }
+    except Exception:  # noqa: BLE001 - shape varies by release
+        metrics = {}
+    metrics = {key: value for key, value in metrics.items() if value is not None}
+    if metrics:
+        summary["validation_metrics"] = metrics
+        for key, target in (
+            ("metrics/accuracy_top1", "validation_top1_accuracy"),
+            ("metrics/accuracy_top5", "validation_top5_accuracy"),
+        ):
+            if key in metrics:
+                summary[target] = metrics[key]
+
+    # Whether the run finished or stopped early, and which epoch was kept.
+    epoch = getattr(trainer, "epoch", None)
+    if epoch is not None:
+        completed = number(epoch)
+        if completed is not None:
+            summary["epochs_completed"] = int(completed) + 1
+    for attribute, target in (
+        ("epochs", "epochs_requested"),
+        ("best_epoch", "best_epoch"),
+    ):
+        value = number(getattr(trainer, attribute, None))
+        if value is not None:
+            summary[target] = int(value)
+    fitness = number(getattr(trainer, "best_fitness", None))
+    if fitness is not None:
+        summary["best_fitness"] = fitness
+    if (
+        "epochs_completed" in summary
+        and "epochs_requested" in summary
+        and summary["epochs_completed"] < summary["epochs_requested"]
+    ):
+        summary["stopped_early"] = True
+
+    # Size and speed, which a station cares about as much as accuracy.
+    speed = getattr(trained, "speed", None)
+    if isinstance(speed, dict):
+        speeds = {str(k): number(v) for k, v in speed.items()}
+        speeds = {k: v for k, v in speeds.items() if v is not None}
+        if speeds:
+            summary["inference_speed_ms"] = speeds
+            summary["inference_total_ms"] = round(sum(speeds.values()), 3)
+    try:
+        parameters = sum(int(p.numel()) for p in trained.model.parameters())
+        summary["parameters"] = parameters
+    except Exception:  # noqa: S110, BLE001 - a missing count is a gap in a report
+        pass
+
+    # Ultralytics writes its curves and confusion matrix beside the weights.
+    # Recording where they are is what makes them reachable from a report.
+    try:
+        artefacts = {}
+        save_dir = getattr(trainer, "save_dir", None)
+        if save_dir:
+            directory = Path(str(save_dir))
+            for name in ("results.csv", "results.png", "confusion_matrix.png",
+                         "confusion_matrix_normalized.png"):
+                candidate = directory / name
+                if candidate.is_file():
+                    artefacts[name] = str(candidate.resolve())
+        if artefacts:
+            summary["artifacts"] = artefacts
+    except Exception:  # noqa: S110, BLE001 - a missing plot is a gap in a report
+        pass
+
+    del run_directory
+    return summary
+
+
 def train_classifier(
     dataset_directory: Path,
     output_root: Path,
@@ -1075,6 +1179,7 @@ def train_classifier(
 
     emit("exporting", "Exporting best model to ONNX", percent=90)
     best = YOLO(str(best_path))
+    ultralytics_summary = _ultralytics_summary(model, best, run_dir)
     names_raw = best.names
     if isinstance(names_raw, dict):
         classes = [str(names_raw[index]).strip().lower() for index in sorted(names_raw)]
@@ -1125,6 +1230,7 @@ def train_classifier(
             "dataset_crop_contract_counts": dict(
                 dataset_summary.get("crop_contract_counts") or {}
             ),
+            "ultralytics": ultralytics_summary,
             "production_note": (
                 "A trained candidate must pass held-out testing and recipe validation before production activation."
             ),

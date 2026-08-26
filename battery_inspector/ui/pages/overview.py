@@ -353,16 +353,24 @@ class OverviewPage(QWidget):
 
         overlays: list[OverlaySpec] = []
         polygon_overlays: list[PolygonOverlaySpec] = []
+        # A rejected part is outlined in the reject colour, not the taught-region
+        # blue. The blue is a restrained annotation meant to sit quietly behind a
+        # normal result; on a reject it reads as just another marking, and an
+        # operator across the station has to find the one red terminal box inside
+        # it to know anything happened.
+        rejected = not result.passed and result.is_product_result
+        battery_color = BAD if rejected else ROI_BATTERY
+
         if image_available and result.recipe_id:
             if result.battery_polygon:
                 polygon_overlays.append(
                     PolygonOverlaySpec(
                         key="battery",
                         points=result.battery_polygon,
-                        label="REGISTERED BATTERY",
-                        color=ROI_BATTERY,
+                        label="REJECTED BATTERY" if rejected else "REGISTERED BATTERY",
+                        color=battery_color,
                         dashed=False,
-                        line_width=3,
+                        line_width=FAILED_ROI_LINE_WIDTH if rejected else 3,
                     )
                 )
                 role_colors = {
@@ -411,9 +419,9 @@ class OverviewPage(QWidget):
                         key="battery",
                         rect=result.battery_roi,
                         label="TAUGHT BATTERY AREA" if not result.analysis_ready else "BATTERY",
-                        color=ROI_BATTERY,
+                        color=battery_color,
                         dashed=not result.analysis_ready,
-                        line_width=2,
+                        line_width=FAILED_ROI_LINE_WIDTH if rejected else 2,
                     )
                 )
             if not result.battery_polygon and result.recipe_id == self._geometry_recipe_id:

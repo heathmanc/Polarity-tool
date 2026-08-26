@@ -1248,6 +1248,39 @@ class MlTrainingPage(QWidget):
         metrics_layout.addStretch(1)
         root.addWidget(metrics, 0, 0)
 
+        # What Ultralytics reports about the run, beside what our own held-out
+        # evaluation reports about the exported model. They answer different
+        # questions: the held-out numbers decide whether this candidate may be
+        # installed; these say whether the training that produced it converged,
+        # what it scored against the split it was tuning on, and what the model
+        # costs to run.
+        training = PanelFrame()
+        training_layout = QVBoxLayout(training)
+        training_title = QLabel("TRAINING RUN")
+        training_title.setObjectName("PanelTitle")
+        training_layout.addWidget(training_title)
+        self.run_epochs = LabeledValue("Epochs", "—")
+        self.run_best_epoch = LabeledValue("Best epoch", "—")
+        self.run_val_top1 = LabeledValue("Validation top-1 accuracy", "—")
+        self.run_fitness = LabeledValue("Best fitness", "—")
+        self.run_parameters = LabeledValue("Parameters", "—")
+        self.run_speed = LabeledValue("Inference time", "—")
+        for item in (
+            self.run_epochs,
+            self.run_best_epoch,
+            self.run_val_top1,
+            self.run_fitness,
+            self.run_parameters,
+            self.run_speed,
+        ):
+            training_layout.addWidget(item)
+        self.run_artifacts = QLabel("—")
+        self.run_artifacts.setWordWrap(True)
+        self.run_artifacts.setProperty("muted", True)
+        training_layout.addWidget(self.run_artifacts)
+        training_layout.addStretch(1)
+        root.addWidget(training, 0, 1)
+
         deploy = PanelFrame()
         deploy_layout = QVBoxLayout(deploy)
         deploy_title = QLabel("INSTALL CANDIDATE ON STATION")
@@ -1280,7 +1313,7 @@ class MlTrainingPage(QWidget):
         self.new_round_button.clicked.connect(lambda: self.set_step(0))
         deploy_layout.addWidget(self.new_round_button)
         deploy_layout.addStretch(1)
-        root.addWidget(deploy, 0, 1)
+        root.addWidget(deploy, 0, 2)
         root.setColumnStretch(0, 3)
         root.setColumnStretch(1, 2)
         return page
@@ -1315,6 +1348,81 @@ class MlTrainingPage(QWidget):
             )
         return warnings
 
+    def _refresh_training_run_metrics(self, result: dict[str, Any]) -> None:
+        """Show what Ultralytics reported, and be honest when it reported nothing.
+
+        These readings come from a third-party trainer whose attributes move
+        between releases, so any of them can be absent. A dash means the trainer
+        did not report it, not that the value is zero.
+        """
+
+        manifest = dict(result.get("manifest") or {})
+        metadata = dict(manifest.get("metadata") or {})
+        run = dict(metadata.get("ultralytics") or {})
+
+        if not run:
+            for widget in (
+                self.run_epochs,
+                self.run_best_epoch,
+                self.run_val_top1,
+                self.run_fitness,
+                self.run_parameters,
+                self.run_speed,
+            ):
+                widget.set_value("not reported")
+            self.run_artifacts.setText(
+                "This Ultralytics release did not report run metrics. The held-out "
+                "evaluation beside this panel is unaffected."
+            )
+            return
+
+        completed = run.get("epochs_completed")
+        requested = run.get("epochs_requested")
+        if completed is not None and requested is not None:
+            stopped = " (stopped early)" if run.get("stopped_early") else ""
+            self.run_epochs.set_value(
+                f"{completed} of {requested}{stopped}",
+                "warning" if run.get("stopped_early") else None,
+            )
+        elif completed is not None:
+            self.run_epochs.set_value(str(completed))
+        else:
+            self.run_epochs.set_value("not reported")
+
+        best_epoch = run.get("best_epoch")
+        self.run_best_epoch.set_value(
+            str(best_epoch) if best_epoch is not None else "not reported"
+        )
+
+        top1 = run.get("validation_top1_accuracy")
+        self.run_val_top1.set_value(
+            f"{100.0 * float(top1):.1f}%" if top1 is not None else "not reported"
+        )
+
+        fitness = run.get("best_fitness")
+        self.run_fitness.set_value(
+            f"{float(fitness):.4f}" if fitness is not None else "not reported"
+        )
+
+        parameters = run.get("parameters")
+        self.run_parameters.set_value(
+            f"{int(parameters):,}" if parameters is not None else "not reported"
+        )
+
+        total_ms = run.get("inference_total_ms")
+        self.run_speed.set_value(
+            f"{float(total_ms):.2f} ms per image" if total_ms is not None else "not reported"
+        )
+
+        artifacts = dict(run.get("artifacts") or {})
+        if artifacts:
+            self.run_artifacts.setText(
+                "Curves and confusion matrix written by the trainer:\n"
+                + "\n".join(sorted(artifacts.values()))
+            )
+        else:
+            self.run_artifacts.setText("The trainer wrote no plots for this run.")
+
     def _refresh_deploy_status(self) -> None:
         result = self.training_result
         if not result:
@@ -1341,6 +1449,7 @@ class MlTrainingPage(QWidget):
             recall = float(details.get("recall_with_abstentions", 0.0) or 0.0)
             count = int(details.get("count", 0) or 0)
             widget.set_value(f"{100.0 * recall:.1f}%  ({count} images)")
+        self._refresh_training_run_metrics(result)
         self.deploy_model.set_value(str(result.get("model_path", "—")))
         digest = str(result.get("model_sha256", ""))
         self.deploy_hash.set_value(digest[:20] + "…" if digest else "—")

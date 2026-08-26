@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -34,6 +36,38 @@ from battery_inspector.ui.palette import (
 
 # Re-export the state colors for existing UI modules.
 MUTED = TEXT_MUTED
+
+
+class WheelValueGuard(QObject):
+    """Stop the mouse wheel from changing values in controls.
+
+    Scrolling a page over a spin box or a combo box changes it. On a desktop
+    that is a mild annoyance; on a station it silently rewrites an exposure, a
+    retention limit, a recipe number, or an expected terminal marking, and the
+    change looks exactly like one somebody made deliberately.
+
+    Installed on the application, so it covers every window and dialog,
+    including ones opened later. Keyboard editing, clicking the arrows, and
+    typing are untouched -- only the wheel is refused, and only over a control
+    that holds a value. Scroll wheels still work everywhere else.
+    """
+
+    GUARDED = (QAbstractSpinBox, QComboBox)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.Wheel:
+            return False
+        # The wheel arrives at whatever is under the cursor, which for a spin
+        # box is often its internal line edit rather than the box itself.
+        node: QObject | None = watched
+        depth = 0
+        while node is not None and depth < 4:
+            if isinstance(node, self.GUARDED):
+                event.ignore()
+                return True
+            node = node.parent()
+            depth += 1
+        return False
 
 
 class PanelFrame(QFrame):

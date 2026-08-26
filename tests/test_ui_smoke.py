@@ -578,3 +578,57 @@ def test_editing_a_recipe_does_not_ask_before_the_wizard_asks(qapp, window) -> N
     assert 'initial_reference_action="choose"' in opener, (
         "the wizard's reference step must be left to ask"
     )
+
+
+@pytest.mark.parametrize(
+    "detected,rejected", [(Marking.PLUS, False), (Marking.MINUS, True)]
+)
+def test_a_rejected_battery_is_outlined_in_the_reject_colour(
+    qapp, window, controller, detected, rejected
+) -> None:
+    """The outline must not read as a normal annotation on a reject.
+
+    Taught-region blue is deliberately restrained so it sits quietly behind a
+    normal result. On a reject that restraint works against the operator: the
+    outline looks like any other marking, and the only thing saying the part
+    failed is a terminal box inside it.
+    """
+
+    from battery_inspector.models import InspectionDisposition, InspectionResult
+    from battery_inspector.ui.palette import FAILED_ROI_LINE_WIDTH, ROI_BATTERY
+    from battery_inspector.ui.widgets import BAD
+
+    terminal = _inspected_terminal(detected=detected)
+    image = np.full((64, 64, 3), 120, dtype=np.uint8)
+    result = InspectionResult.create(
+        recipe=None,
+        disposition=(
+            InspectionDisposition.REJECT if rejected else InspectionDisposition.PASS
+        ),
+        reason="TEST",
+        duration_ms=5,
+        trigger_source="MANUAL",
+        image_quality="GOOD",
+        full_image_path="",
+        terminals=[terminal],
+        frame_id="FRAME-1",
+        analysis_ready=True,
+        full_image=image,
+        battery_polygon=[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+    )
+    result.recipe_id = "RECIPE-1"
+
+    page = window.page_at(MainWindow.OVERVIEW)
+    page.set_inspection(result)
+    qapp.processEvents()
+
+    outline = next(
+        overlay for overlay in page.image._polygon_overlays if overlay.key == "battery"
+    )
+    if rejected:
+        assert outline.color == BAD
+        assert outline.line_width == FAILED_ROI_LINE_WIDTH
+        assert outline.label == "REJECTED BATTERY"
+    else:
+        assert outline.color == ROI_BATTERY
+        assert outline.label == "REGISTERED BATTERY"
