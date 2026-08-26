@@ -55,6 +55,9 @@ PAGE_TYPES = [
 @pytest.fixture()
 def window(qapp, controller):
     instance = MainWindow(controller)
+    # These tests stand for a technician who has already entered the passcode.
+    # The gate itself is exercised in test_maintenance_gate.py.
+    instance.unlock_maintenance_screens()
     yield instance
     instance.close()
     qapp.processEvents()

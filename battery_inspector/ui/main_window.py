@@ -4,7 +4,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent, QIcon, QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from battery_inspector.controller import AppController
+from battery_inspector.maintenance_passcode import verify
 from battery_inspector.models import InspectionCycleStatus, InspectionResult, Recipe
 from battery_inspector.ui_state import derive_run_state
 from battery_inspector.ui.pages.diagnostics import DiagnosticsPage
@@ -39,6 +42,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.controller = controller
         self._busy = controller.busy
+        self._maintenance_unlocked = False
         self._last_inspection = controller.last_inspection
         self._cycle_status = controller.cycle_status
         self.setWindowTitle("Pole Position — Battery Polarity Inspection")
@@ -193,6 +197,7 @@ class MainWindow(QMainWindow):
             layout.addWidget(button)
         layout.addStretch(1)
         logout = NavButton("↪", "Logout")
+        logout.clicked.connect(self.lock_maintenance_screens)
         logout.clicked.connect(self.request_close)
         layout.addWidget(logout)
         return sidebar
@@ -227,6 +232,66 @@ class MainWindow(QMainWindow):
         layout.addWidget(help_button)
         return footer
 
+    # Screens where a wrong entry changes what the station inspects. Gating
+    # them is a speed bump against a mis-tap, not a security control -- see
+    # battery_inspector/maintenance_passcode.py.
+    GATED_PAGES = (ML_TRAINING, SETTINGS)
+
+    def prompt_for_passcode(self, screen: str) -> str | None:
+        """Ask for the passcode. None means the technician cancelled.
+
+        A separate method so the gate can be exercised without a modal dialog.
+        """
+
+        passcode, accepted = QInputDialog.getText(
+            self,
+            f"{screen} is protected",
+            f"Enter the maintenance passcode to open {screen}.",
+            QLineEdit.EchoMode.Password,
+        )
+        return passcode if accepted else None
+
+    def report_passcode_refused(self, screen: str) -> None:
+        """Say the screen did not open. Separate, so it can be silenced in tests."""
+
+        QMessageBox.warning(self, "Passcode not accepted", f"{screen} was not opened.")
+
+    def unlock_maintenance_screens(self) -> None:
+        """Treat the maintenance screens as already unlocked."""
+
+        self._maintenance_unlocked = True
+
+    def _screen_is_unlocked(self, index: int) -> bool:
+        if index not in self.GATED_PAGES:
+            return True
+        if self._maintenance_unlocked:
+            return True
+
+        name = {self.ML_TRAINING: "ML Training", self.SETTINGS: "Settings"}[index]
+        passcode = self.prompt_for_passcode(name)
+        if passcode is None:
+            return False
+        if not verify(
+            passcode,
+            self.controller.config.maintenance_passcode_salt,
+            self.controller.config.maintenance_passcode_hash,
+        ):
+            # Recorded, because "who was in Settings before that recipe
+            # changed" is a question the audit log has to be able to answer,
+            # and so does "who was trying to be".
+            self.controller.record_maintenance_access(name, granted=False)
+            self.report_passcode_refused(name)
+            return False
+
+        self._maintenance_unlocked = True
+        self.controller.record_maintenance_access(name, granted=True)
+        return True
+
+    def lock_maintenance_screens(self) -> None:
+        """Require the passcode again. Bound to LOGOUT."""
+
+        self._maintenance_unlocked = False
+
     def page_at(self, index: int) -> QWidget:
         return self.stack.widget(index)
 
@@ -234,6 +299,12 @@ class MainWindow(QMainWindow):
         return self.stack.currentWidget()
 
     def navigate(self, index: int) -> None:
+        if not self._screen_is_unlocked(index):
+            # Leave the sidebar showing the page actually on screen, not the
+            # one that was refused.
+            for button_index, button in self.nav_buttons.items():
+                button.setChecked(button_index == self.stack.currentIndex())
+            return
         self.stack.setCurrentIndex(index)
         for button_index, button in self.nav_buttons.items():
             button.setChecked(button_index == index)

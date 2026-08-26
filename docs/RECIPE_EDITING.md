@@ -56,7 +56,26 @@ At runtime, OpenCV registration maps the battery reference into the current fram
 
 Validation uses the same fresh camera acquisition, reference locator, marking classifier, red-ring detector, and evidence writer as a production inspection. PLC publication and production counts are bypassed.
 
-A passing sample counts only when its pose is sufficiently different from earlier successful samples. The complete validation history is bound to a SHA-256 configuration fingerprint. Changing the accepted reference, battery/terminal/marking ROIs, expected markings, expected terminal finishes, ring requirements, orientation, locator settings, or classifier settings clears prior validation before save.
+A passing sample counts only when it is **independent** of the samples already
+counted. Two things make a sample independent, and either is enough:
+
+- **A different physical battery**, confirmed by the technician in the wizard.
+  The confirmation is recorded with the sample.
+- **A different pose** -- the same battery in a meaningfully different
+  position, rotation, or scale.
+
+A fixed-stop fixture exists to make the pose repeatable, so requiring a
+different pose there asks the technician to defeat the fixture. Use different
+batteries instead; it is also better evidence, because part-to-part variation
+in stamp depth, finish, and ring is what varies in production.
+
+What is never accepted is the same part in the same place twice. That is one
+piece of evidence counted twice, and it would let a recipe qualify on a single
+frame repeated.
+
+The number of counted samples required is a station setting, under
+**Settings → GENERAL → Recipe validation samples**. An existing recipe keeps
+the count it was validated against until it is revalidated. The complete validation history is bound to a SHA-256 configuration fingerprint. Changing the accepted reference, battery/terminal/marking ROIs, expected markings, expected terminal finishes, ring requirements, orientation, locator settings, or classifier settings clears prior validation before save.
 
 ## Terminal-finish behavior in v0.21.0
 

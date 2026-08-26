@@ -181,6 +181,19 @@ class SettingsPage(QWidget):
         self.failure_retention_max_gb.setValue(
             self.controller.config.failure_retention_max_gb
         )
+        self.validation_runs = QSpinBox()
+        self.validation_runs.setRange(1, 50)
+        self.validation_runs.setSuffix(" samples")
+        self.validation_runs.setValue(self.controller.config.validation_runs_required)
+        validation_note = QLabel(
+            "How many independent samples a new recipe revision must pass before it can be "
+            "activated. A sample counts when it is a different battery, confirmed in the "
+            "wizard, or the same battery moved. Existing recipes keep the count they were "
+            "validated against until they are revalidated."
+        )
+        validation_note.setWordWrap(True)
+        validation_note.setProperty("muted", True)
+
         retention_note = QLabel(
             "Production PASS frames and records are never written. Non-PASS evidence is "
             "retained until either enabled limit is reached; the oldest failures are removed first."
@@ -190,6 +203,8 @@ class SettingsPage(QWidget):
         general_form.addRow("Camera source", self.camera_backend)
         general_form.addRow("Display", self.fullscreen)
         general_form.addRow("Current technician", self.operator)
+        general_form.addRow("Recipe validation samples", self.validation_runs)
+        general_form.addRow("Validation policy", validation_note)
         general_form.addRow("Failure retention age", self.failure_retention_days)
         general_form.addRow("Failure storage limit", self.failure_retention_max_gb)
         general_form.addRow("Storage policy", retention_note)
@@ -1825,6 +1840,9 @@ class SettingsPage(QWidget):
             failure_retention_days=self.failure_retention_days.value(),
             failure_retention_max_gb=self.failure_retention_max_gb.value(),
             operator_name=self.operator.text().strip() or "Technician",
+            validation_runs_required=self.validation_runs.value(),
+            maintenance_passcode_salt=self.controller.config.maintenance_passcode_salt,
+            maintenance_passcode_hash=self.controller.config.maintenance_passcode_hash,
             tags=tags,
         ).normalized()
 

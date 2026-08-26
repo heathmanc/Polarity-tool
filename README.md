@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.26.0** source
+This README is the current project and handoff guide for the **v0.27.0** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.26.0` |
-| Release tag | `v0.26.0` |
+| Application version | `0.27.0` |
+| Release tag | `v0.27.0` |
 | Tagged commit | `acb8b16dd70845c8624805a744a811fb29c42403` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -73,6 +73,10 @@ Recorded project status at this handoff point:
   CPU-only PyTorch. See `docs/RELEASE_NOTES_v0.24.0.md`.
 - v0.25.0 adds an optional PLC result-acknowledge handshake. The tag is
   blank by default, so an existing station's PLC behaviour is unchanged.
+- v0.27.0 changes what makes a recipe validation sample count so a fixed-stop
+  fixture can validate, makes the sample count a station setting, puts ML
+  Training and Settings behind a maintenance passcode, and stops the mouse
+  wheel changing values. See `docs/RELEASE_NOTES_v0.27.0.md`.
 - v0.26.0 adds a live camera preview on the CAMERA IMAGE tab and exposes white
   balance, black level, and gamma. White balance in particular is an inspection
   setting: the silver/brass check compares colour against the recipe reference,
@@ -89,8 +93,8 @@ Recorded project status at this handoff point:
   PLC, model performance, or station mechanics. Complete site acceptance is
   still required for every deployed station and trained model.
 
-The repository contains 381 pytest test functions, which parameterization expands
-to 401 collected cases, plus four command-line smoke
+The repository contains 414 pytest test functions, which parameterization expands
+to 448 collected cases, plus four command-line smoke
 and installation checks. Their presence is not a substitute for recording the
 exact test results from the release environment.
 
@@ -340,7 +344,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.26.0-Setup-x64.exe
+Pole-Position-v0.27.0-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -1086,9 +1090,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.26.0-Setup-x64.exe
-dist\windows\Pole-Position-v0.26.0-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.26.0-requirements-lock.txt
+dist\windows\Pole-Position-v0.27.0-Setup-x64.exe
+dist\windows\Pole-Position-v0.27.0-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.27.0-requirements-lock.txt
 ```
 
 The build:
@@ -1398,6 +1402,7 @@ this README, current source, or current subsystem documents.
 | v0.24.0 | Recipe-editor gate preservation; rejecting terminal marked red; page layout no longer compresses on scaled displays; CUDA PyTorch retained through the build |
 | v0.25.0 | Optional PLC result-acknowledge handshake, off by default |
 | v0.26.0 | Live camera preview; white balance, black level and gamma exposed |
+| v0.27.0 | Validation counts a different confirmed part or a moved one; validation sample count is a station setting; ML Training and Settings behind a passcode; wheel cannot change values |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1433,7 +1438,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.26.0 installer, `.sha256`, and requirements lock
+- [ ] v0.27.0 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

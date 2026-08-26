@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from battery_inspector.maintenance_passcode import default_credentials
+
 
 CAMERA_BACKENDS = {"auto", "basler", "simulation"}
 PLC_BACKENDS = {"pycomm3", "simulation"}
@@ -216,6 +218,16 @@ class AppConfig:
     failure_retention_days: int = 30
     failure_retention_max_gb: float = 5.0
     operator_name: str = "Technician"
+    # How many independent counted samples a recipe revision must pass before
+    # it may be activated. Station-wide, because it describes how thoroughly
+    # this site qualifies a recipe, not a property of any one battery.
+    validation_runs_required: int = 5
+    # Screen gating for ML Training and Settings. Stored salted and hashed so
+    # the passcode is not sitting in a file in plain text, and so it can be
+    # changed at the station. See maintenance_passcode.py: this is an
+    # operational speed bump, not a security control.
+    maintenance_passcode_salt: str = ""
+    maintenance_passcode_hash: str = ""
     tags: PlcTagMap = field(default_factory=PlcTagMap)
 
     @property
@@ -244,6 +256,9 @@ class AppConfig:
     def load(cls, path: Path) -> "AppConfig":
         if not path.exists():
             config = cls.default()
+            salt, digest = default_credentials()
+            config.maintenance_passcode_salt = salt
+            config.maintenance_passcode_hash = digest
             config.save(path)
             return config
 
@@ -312,7 +327,7 @@ class AppConfig:
         if plc_backend not in PLC_BACKENDS:
             plc_backend = "pycomm3" if legacy_simulation is False else "simulation"
 
-        return cls(
+        config = cls(
             camera_backend=camera_backend,
             plc_backend=plc_backend,
             camera=camera,
@@ -320,6 +335,22 @@ class AppConfig:
             tags=tags,
             **_known_dataclass_values(AppConfig, raw),
         ).normalized()
+        # A station upgrading from a build without screen gating has no stored
+        # passcode. Give it the shipped default rather than leaving the screens
+        # either wide open or unreachable.
+        #
+        # Held in memory, not written back. Loading a configuration must never
+        # modify the file: a staged restore verifies config.json against the
+        # checksum in the backup manifest, and a load that rewrote the file
+        # failed that check and aborted the restore. The credentials are
+        # persisted the next time settings are saved; until then each launch
+        # derives a fresh salt, which changes nothing for the technician
+        # because the passcode itself is unchanged.
+        if not config.maintenance_passcode_hash:
+            salt, digest = default_credentials()
+            config.maintenance_passcode_salt = salt
+            config.maintenance_passcode_hash = digest
+        return config
 
     def normalized(self) -> "AppConfig":
         camera_backend = self.camera_backend if self.camera_backend in CAMERA_BACKENDS else "auto"
@@ -348,6 +379,9 @@ class AppConfig:
                 min(10_000.0, float(self.failure_retention_max_gb)),
             ),
             operator_name=self.operator_name.strip() or "Technician",
+            validation_runs_required=max(1, min(50, int(self.validation_runs_required))),
+            maintenance_passcode_salt=self.maintenance_passcode_salt.strip(),
+            maintenance_passcode_hash=self.maintenance_passcode_hash.strip(),
             tags=self.tags,
         )
 

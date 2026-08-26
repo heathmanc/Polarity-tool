@@ -973,14 +973,22 @@ class ReadinessPage(WizardPage):
         self.terminals.setWordWrap(True)
         side_layout.addWidget(self.terminals)
 
+        self.different_part = QCheckBox("A different battery is loaded")
+        self.different_part.setToolTip(
+            "Tick this when the battery in the fixture is a different physical part "
+            "from the last counted sample. It is recorded with the sample."
+        )
+        side_layout.addWidget(self.different_part)
+
         self.run_button = QPushButton("RUN FRESH VALIDATION SAMPLE")
         self.run_button.setObjectName("PrimaryButton")
         self.run_button.clicked.connect(self.run_validation)
         side_layout.addWidget(self.run_button)
 
         reminder = QLabel(
-            "A PASS only counts when the battery pose is sufficiently different from previous "
-            "successful samples. Failed or duplicate-position samples remain in the audit evidence."
+            "A PASS counts when the sample is independent of the ones already counted: "
+            "a different battery, confirmed above, or the same battery moved. On a fixed "
+            "stop, use a different battery. Uncounted samples stay in the audit evidence."
         )
         reminder.setWordWrap(True)
         reminder.setProperty("muted", True)
@@ -999,7 +1007,33 @@ class ReadinessPage(WizardPage):
         )
 
     @staticmethod
-    def _pose_is_distinct(record: dict, previous: list[dict]) -> bool:
+    def _independent_of_previous(record: dict, previous: list[dict]) -> bool:
+        """Is this sample independent of the ones already counted?
+
+        Validation needs several independent pieces of evidence, not the same
+        evidence several times. What makes a sample independent depends on the
+        fixture, and this station has two ways to be one.
+
+        **A different physical battery.** The technician states, per sample,
+        that a different part is loaded, and the statement is recorded with the
+        sample. This is the only workable answer on a fixed-stop fixture -- the
+        stop exists to make the pose repeatable, so requiring a different pose
+        there asks the technician to defeat the fixture. It is also the better
+        evidence: part-to-part variation in stamp depth, finish, and ring is
+        what actually varies in production.
+
+        **A different pose.** Where the part is free to sit differently, a
+        meaningfully different position, rotation, or scale is independent on
+        its own, and needs no attestation.
+
+        Either satisfies the gate. Neither is optional: a sample that is the
+        same part in the same place is the same evidence twice, and counting it
+        would let a recipe qualify on one frame repeated.
+        """
+
+        if bool(record.get("different_part")):
+            return True
+
         metrics = dict(record.get("locator_metrics", {}) or {})
         center = metrics.get("battery_center_normalized")
         rotation = float(metrics.get("rotation_deg", 0.0) or 0.0)
@@ -1192,16 +1226,26 @@ class ReadinessPage(WizardPage):
             "locator_metrics": dict(payload.locator_metrics),
             "terminals": [terminal.to_dict() for terminal in payload.terminals],
         }
-        distinct = self._pose_is_distinct(record, self.data.validation_records)
+        # Recorded against the sample, so the evidence says on what basis it
+        # was counted rather than leaving that to be inferred later.
+        record["different_part"] = bool(self.different_part.isChecked())
+        distinct = self._independent_of_previous(record, self.data.validation_records)
         if payload.disposition == InspectionDisposition.PASS and not distinct:
-            record["disposition"] = "duplicate_pose"
-            record["reason"] = "MOVE OR ROTATE THE BATTERY MORE BEFORE THE NEXT SAMPLE"
+            record["disposition"] = "duplicate_sample"
+            record["reason"] = (
+                "SAME PART IN THE SAME POSITION — LOAD A DIFFERENT BATTERY AND "
+                "CONFIRM IT, OR MOVE THIS ONE"
+            )
         self.data.add_validation_record(record)
 
         counted = record["disposition"] == "pass"
         tone = GOOD if counted else BAD
         if payload.disposition == InspectionDisposition.PASS and not distinct:
             tone = AMBER
+        if counted:
+            # Cleared after every counted sample, so confirming a part change
+            # is a deliberate act each time rather than a box left ticked.
+            self.different_part.setChecked(False)
         self.result.setText(
             f"{payload.disposition.display}\n{record['reason']}\n"
             f"Frame: {payload.frame_id or '—'}"
@@ -1433,6 +1477,13 @@ class RecipeWizardDialog(QDialog):
         self.resize(1500, 900)
         self.setMinimumSize(1180, 760)
         self.data = RecipeWizardData.from_recipe(recipe) if recipe else RecipeWizardData()
+        if recipe is None or self.template_mode:
+            # A new recipe adopts the station's requirement. An existing one
+            # keeps the count it was validated against, so reopening a recipe
+            # does not quietly restate how thoroughly it was qualified.
+            self.data.validation_runs_required = max(
+                1, int(controller.config.validation_runs_required)
+            )
         if recipe is None or self.template_mode:
             self.data.recipe_number = controller.next_recipe_number()
         if controller.config.ml.use_for_new_revisions:

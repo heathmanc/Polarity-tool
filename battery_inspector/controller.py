@@ -1430,6 +1430,20 @@ class AppController(QObject):
         self._end_activity("validation")
         self._resume_queued_work()
 
+    def record_maintenance_access(self, screen: str, *, granted: bool) -> None:
+        """Log an attempt to open a gated screen, refused or allowed.
+
+        The passcode itself stops very little. What makes the gate worth having
+        is this record: "who opened Settings before that recipe changed" needs
+        an answer, and so does "who was trying to".
+        """
+
+        self._add_event(
+            "ACCESS",
+            f"{screen} {'opened' if granted else 'refused'}",
+            details={"screen": screen, "granted": bool(granted)},
+        )
+
     # --- live camera preview ------------------------------------------------
     #
     # Tuning exposure, gain, or white balance by applying a profile, taking one

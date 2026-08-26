@@ -98,6 +98,8 @@ def _seed_review_samples(controller) -> None:
 def seeded_window(qapp, controller):
     _seed_review_samples(controller)
     window = MainWindow(controller)
+    # Every page must be measured, including the two behind the passcode.
+    window.unlock_maintenance_screens()
     yield window
     window.close()
     qapp.processEvents()
