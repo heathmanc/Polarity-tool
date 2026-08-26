@@ -67,6 +67,12 @@ class PlcService(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def write_ready(self, ready: bool) -> bool:
+        """Publish station readiness and return the written state."""
+
+        raise NotImplementedError
+
+    @abstractmethod
     def set_bypass(self, enabled: bool) -> bool:
         """Set the PLC bypass tag and return the verified/read-back state."""
 
@@ -98,6 +104,7 @@ class MockPlcService(PlcService):
         self._heartbeat = False
         self._bypass = False
         self._acknowledge = False
+        self._ready = False
         self._lock = Lock()
         self.last_result: dict[str, Any] = {}
 
@@ -164,6 +171,13 @@ class MockPlcService(PlcService):
             self._heartbeat = bool(value)
             return self._heartbeat
 
+    def write_ready(self, ready: bool) -> bool:
+        with self._lock:
+            if not self._connected:
+                raise PlcError("Mock PLC is not connected")
+            self._ready = bool(ready)
+            return self._ready
+
     def set_bypass(self, enabled: bool) -> bool:
         with self._lock:
             if not self._connected:
@@ -191,6 +205,7 @@ class MockPlcService(PlcService):
                 "heartbeat": self._heartbeat,
                 "bypass": self._bypass,
                 "acknowledge": self._acknowledge,
+                "ready": self._ready,
                 **result,
             }
 
@@ -330,6 +345,19 @@ class AllenBradleyPlcService(PlcService):
             results = driver.write((self.tags.heartbeat, desired))
             self._raise_write_errors(results)
             self._heartbeat = desired
+            return desired
+
+    def write_ready(self, ready: bool) -> bool:
+        """Blank tag means the station does not publish readiness at all."""
+
+        tag = str(self.tags.ready or "").strip()
+        if not tag:
+            return bool(ready)
+        with self._lock:
+            driver = self._require_driver()
+            desired = bool(ready)
+            results = driver.write((tag, desired))
+            self._raise_write_errors(results)
             return desired
 
     def set_bypass(self, enabled: bool) -> bool:

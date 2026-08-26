@@ -76,7 +76,8 @@ Recorded project status at this handoff point:
 - v0.27.0 changes what makes a recipe validation sample count so a fixed-stop
   fixture can validate, makes the sample count a station setting, puts ML
   Training and Settings behind a maintenance passcode, and stops the mouse
-  wheel changing values. See `docs/RELEASE_NOTES_v0.27.0.md`.
+  wheel changing values. It also separates Logout from Exit, and adds an
+  optional PLC station-readiness tag. See `docs/RELEASE_NOTES_v0.27.0.md`.
 - v0.26.0 adds a live camera preview on the CAMERA IMAGE tab and exposes white
   balance, black level, and gamma. White balance in particular is an inspection
   setting: the silver/brass check compares colour against the recipe reference,
@@ -93,8 +94,8 @@ Recorded project status at this handoff point:
   PLC, model performance, or station mechanics. Complete site acceptance is
   still required for every deployed station and trained model.
 
-The repository contains 414 pytest test functions, which parameterization expands
-to 448 collected cases, plus four command-line smoke
+The repository contains 424 pytest test functions, which parameterization expands
+to 458 collected cases, plus four command-line smoke
 and installation checks. Their presence is not a substitute for recording the
 exact test results from the release environment.
 
@@ -1402,7 +1403,7 @@ this README, current source, or current subsystem documents.
 | v0.24.0 | Recipe-editor gate preservation; rejecting terminal marked red; page layout no longer compresses on scaled displays; CUDA PyTorch retained through the build |
 | v0.25.0 | Optional PLC result-acknowledge handshake, off by default |
 | v0.26.0 | Live camera preview; white balance, black level and gamma exposed |
-| v0.27.0 | Validation counts a different confirmed part or a moved one; validation sample count is a station setting; ML Training and Settings behind a passcode; wheel cannot change values |
+| v0.27.0 | Validation counts a different confirmed part or a moved one; validation sample count is a station setting; ML Training and Settings behind a passcode; wheel cannot change values; Logout separate from Exit; optional PLC station-readiness tag |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |

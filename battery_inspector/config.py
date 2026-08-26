@@ -42,6 +42,10 @@ class PlcTagMap:
     # result behaviour exactly, and adding the tag is a deliberate act on a
     # controller whose program is ready to drive it.
     acknowledge: str = ""
+    # Station status, HMI -> PLC. Blank means it is not published, so a station
+    # commissioned before it existed is unchanged and no controller has to
+    # create a tag it does not use.
+    ready: str = ""
 
 
 @dataclass(slots=True)

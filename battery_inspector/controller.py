@@ -177,6 +177,9 @@ class AppController(QObject):
         self._camera_preview_in_flight = False
         self._camera_preview_dirty = False
         self._camera_preview_saved: CameraConfig | None = None
+        # Last value written to the PLC readiness tag. None means nothing has
+        # been written yet, so the first evaluation always publishes.
+        self._plc_ready_published: bool | None = None
         self._pending_configuration: AppConfig | None = None
         self._plc_operation_in_flight = False
         self._plc_apply_task_started = False
@@ -788,6 +791,9 @@ class AppController(QObject):
         self.plc_backend_active = active_backend
         self._plc_trigger_edge.reset()
         self._plc_acknowledge_edge.reset()
+        # The replacement service has never been told anything, so the next
+        # evaluation must write regardless of what the old one was told.
+        self._plc_ready_published = None
         self._plc_result_outstanding = False
         self._plc_unacknowledged_reported = False
         self._last_plc_state.update(
@@ -1175,6 +1181,7 @@ class AppController(QObject):
             self.plc_heartbeat_timer.start()
         self._emit_plc_simulation_state()
         self.cycle_state_changed.emit(self.cycle_status)
+        self._publish_plc_ready(force=True)
 
     def _initialization_failed(self, message: str) -> None:
         self.health["system"] = {"ok": False, "text": "FAULT"}
@@ -1188,6 +1195,10 @@ class AppController(QObject):
     def _initialization_finished(self) -> None:
         self._startup_in_flight = False
         self._end_activity("startup")
+        # Only now is the answer meaningful: the PLC is connected and startup no
+        # longer holds the camera. Forced, because the controller has been told
+        # nothing yet and must not be left inferring readiness from silence.
+        self._publish_plc_ready(force=True)
         self._resume_queued_work()
 
     def discover_camera_hardware(self) -> bool:
@@ -1430,6 +1441,70 @@ class AppController(QObject):
         self._end_activity("validation")
         self._resume_queued_work()
 
+    def station_ready_for_trigger(self) -> bool:
+        """Can this station accept a trigger and grade the part it gets?
+
+        This answers capability, not the momentary state of a cycle. It stays
+        true while an inspection runs, because Busy already reports that and a
+        readiness bit that dropped every cycle would flap at cycle rate and
+        tell the controller nothing it did not have. The controller's permissive
+        is Ready AND NOT Busy.
+
+        It is false when the station could not grade a part if triggered:
+
+        * no camera, or the camera faulted;
+        * no active recipe, no reference, or an unusable model -- whatever
+          inspection readiness reports as a blocking issue;
+        * the camera is held by something that is not an inspection: a live
+          preview, a reference capture, a validation run, an ML capture, or a
+          settings apply.
+
+        That last group matters most. Those are exactly the states where a
+        trigger is silently dropped, so without this the controller learns the
+        station was unavailable only by timing out.
+        """
+
+        if not self.camera.connected:
+            return False
+        if not bool(self.inspection_readiness().get("ready")):
+            return False
+        return not (
+            self._startup_in_flight
+            or self._camera_operation_in_flight
+            or self._reference_capture_in_flight
+            or self._recipe_validation_in_flight
+            or self._ml_training_capture_in_flight
+            or self._ml_training_in_flight
+            or self._camera_preview_active
+        )
+
+    def _publish_plc_ready(self, *, force: bool = False) -> None:
+        """Write the readiness tag, but only when the answer changed.
+
+        Readiness is evaluated on every health recalculation, which is often.
+        Writing every time would put a needless write on the wire several times
+        a second; the controller only cares about transitions.
+        """
+
+        if not str(self.config.tags.ready or "").strip():
+            return
+        if not self.plc.connected:
+            return
+        ready = self.station_ready_for_trigger()
+        if not force and ready == self._plc_ready_published:
+            return
+        try:
+            self.plc.write_ready(ready)
+        except Exception as exc:  # noqa: BLE001
+            self._add_event("PLC", f"Could not publish station readiness: {exc}")
+            return
+        if ready != self._plc_ready_published:
+            self._add_event(
+                "PLC",
+                f"Station readiness published as {'READY' if ready else 'NOT READY'}",
+            )
+        self._plc_ready_published = ready
+
     def record_maintenance_access(self, screen: str, *, granted: bool) -> None:
         """Log an attempt to open a gated screen, refused or allowed.
 
@@ -1485,6 +1560,7 @@ class AppController(QObject):
         self._camera_preview_saved = self.config.camera.normalized()
         self._camera_preview_dirty = False
         self._camera_preview_active = True
+        self._publish_plc_ready()
         self.camera_preview_timer.start()
         self.camera_preview_state.emit(True, "LIVE PREVIEW RUNNING")
         self._add_event("CAMERA", "Live camera preview started")
@@ -1497,6 +1573,7 @@ class AppController(QObject):
             return
         self.camera_preview_timer.stop()
         self._camera_preview_active = False
+        self._publish_plc_ready()
         saved = self._camera_preview_saved
         self._camera_preview_saved = None
 
@@ -1846,6 +1923,10 @@ class AppController(QObject):
         else:
             text = "GOOD"
         self.health["system"] = {"ok": ok, "text": text}
+        # Health is recalculated on every state change that could affect
+        # whether a trigger would succeed, which makes it the right place to
+        # re-evaluate readiness. The write itself only happens on a transition.
+        self._publish_plc_ready()
 
     def apply_plc_settings(self, updated_configuration: AppConfig) -> bool:
         """Connect and verify a replacement PLC service, then make it active.
@@ -2007,6 +2088,8 @@ class AppController(QObject):
             self.plc_heartbeat_timer.start()
         self._set_plc_operation_busy(False)
         self._end_activity("plc")
+        # A replacement service, or a changed tag map, has been told nothing.
+        self._publish_plc_ready(force=True)
         self._resume_queued_work()
 
     def _set_plc_operation_busy(self, busy: bool) -> None:

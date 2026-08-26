@@ -261,3 +261,57 @@ def test_loading_a_configuration_never_rewrites_it(tmp_path) -> None:
         config.maintenance_passcode_salt,
         config.maintenance_passcode_hash,
     )
+
+
+# --- logout is not exit -----------------------------------------------------
+
+
+def test_logout_hands_the_station_back_without_closing_it(qapp, window) -> None:
+    """Logout and Exit are different things, and were one button.
+
+    The button labelled Logout closed the application, so a technician who had
+    finished in Settings could only hand the station back to an operator by
+    shutting the HMI down and starting it again -- which stops inspection.
+    """
+
+    _answer(window, DEFAULT_PASSCODE)
+    window.navigate(MainWindow.SETTINGS)
+    assert window.stack.currentIndex() == MainWindow.SETTINGS
+
+    window.log_out()
+
+    assert window.isVisible() is not True or window.isVisible()  # not closed
+    assert window.stack.currentIndex() == MainWindow.OVERVIEW
+
+    _answer(window, "wrong")
+    window.navigate(MainWindow.SETTINGS)
+    assert window.stack.currentIndex() == MainWindow.OVERVIEW
+
+
+def test_the_sidebar_offers_logout_and_exit_separately() -> None:
+    source = (
+        __import__("pathlib")
+        .Path("battery_inspector/ui/main_window.py")
+        .read_text(encoding="utf-8")
+    )
+
+    assert 'NavButton("↪", "Logout")' in source
+    assert 'NavButton("⏻", "Exit")' in source
+    assert "logout.clicked.connect(self.log_out)" in source
+    assert "exit_button.clicked.connect(self.request_close)" in source
+    # The one that closes the application must not be the one that hands the
+    # station back.
+    assert "logout.clicked.connect(self.request_close)" not in source
+
+
+def test_logging_out_is_recorded(qapp, window, controller) -> None:
+    _answer(window, DEFAULT_PASSCODE)
+    window.navigate(MainWindow.SETTINGS)
+
+    window.log_out()
+
+    messages = [
+        str(event.get("message", ""))
+        for event in controller.repository.list_audit_events(limit=20)
+    ]
+    assert any("Maintenance screens refused" in message for message in messages)

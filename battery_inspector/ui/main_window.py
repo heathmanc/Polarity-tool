@@ -196,10 +196,18 @@ class MainWindow(QMainWindow):
             self.nav_buttons[index] = button
             layout.addWidget(button)
         layout.addStretch(1)
+
+        # Two separate things, and they were one. The button labelled Logout
+        # closed the application, so a technician who had opened Settings and
+        # wanted to hand the station back to an operator had no way to do that
+        # short of shutting the HMI down and starting it again.
         logout = NavButton("↪", "Logout")
-        logout.clicked.connect(self.lock_maintenance_screens)
-        logout.clicked.connect(self.request_close)
+        logout.clicked.connect(self.log_out)
         layout.addWidget(logout)
+
+        exit_button = NavButton("⏻", "Exit")
+        exit_button.clicked.connect(self.request_close)
+        layout.addWidget(exit_button)
         return sidebar
 
     def _build_footer(self) -> QWidget:
@@ -288,9 +296,24 @@ class MainWindow(QMainWindow):
         return True
 
     def lock_maintenance_screens(self) -> None:
-        """Require the passcode again. Bound to LOGOUT."""
+        """Require the passcode again for the gated screens."""
 
         self._maintenance_unlocked = False
+
+    def log_out(self) -> None:
+        """Hand the station back to an operator, without stopping inspection.
+
+        Locks the maintenance screens and returns to Overview. The application
+        keeps running: a station that stops inspecting because a technician
+        finished in Settings would be a worse outcome than leaving those
+        screens unlocked.
+        """
+
+        was_unlocked = self._maintenance_unlocked
+        self.lock_maintenance_screens()
+        if was_unlocked:
+            self.controller.record_maintenance_access("Maintenance screens", granted=False)
+        self.navigate(self.OVERVIEW)
 
     def page_at(self, index: int) -> QWidget:
         return self.stack.widget(index)

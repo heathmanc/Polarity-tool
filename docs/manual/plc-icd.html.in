@@ -89,6 +89,10 @@
           <td><strong>Bypass</strong></td><td><code>BatteryVision.Bypass</code></td><td>BOOL</td><td>station &harr; PLC</td>
           <td><span class="badge level">Level</span> written by the station, read back every poll</td>
         </tr>
+        <tr>
+          <td><strong>Ready</strong> <em>(optional)</em></td><td>blank by default</td><td>BOOL</td><td>station &rarr; PLC</td>
+          <td><span class="badge level">Level</span> written only when it changes</td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -212,7 +216,29 @@
 
   <p>One exception to the toggling: when PLC settings are applied at the HMI, the station writes <code>Heartbeat = 0</code> once as part of verifying the connection, then resumes toggling. A watchdog with a three-interval timeout rides through this.</p>
 
-  <h3>4.4 &nbsp;Bypass &mdash; level, station&nbsp;&rarr;&nbsp;PLC</h3>
+  <h3>4.4 &nbsp;Ready &mdash; level, station&nbsp;&rarr;&nbsp;PLC, optional</h3>
+
+  <p>Blank by default. When a tag is configured, the station publishes whether it could accept a trigger and grade the part it gets.</p>
+
+  <p><strong>Ready answers capability, not the momentary state of a cycle.</strong> It stays high while an inspection runs, because <code>Busy</code> already reports that and a readiness bit that dropped every cycle would flap at cycle rate. The permissive is:</p>
+
+  <pre><code>Safe_To_Trigger := BatteryVision.Ready AND NOT BatteryVision.Busy;</code></pre>
+
+  <p>It goes low when the station could not grade a part if triggered:</p>
+  <ul>
+    <li>no camera, or the camera has faulted;</li>
+    <li>no active recipe, no reference image, or an unusable model &mdash; whatever the station reports as a blocking readiness issue;</li>
+    <li>the camera is held by something that is not an inspection: a <strong>live camera preview</strong>, a recipe reference capture, a validation run, an ML training capture, or a settings apply.</li>
+  </ul>
+
+  <div class="note care">
+    <span class="tag">This is the tag that turns silence into a signal</span>
+    <p>That last group is why the tag exists. Those are exactly the states in which a trigger is accepted by nobody and silently dropped (section 5.2), so without <code>Ready</code> the controller discovers the station was unavailable only by timing out. With it, the product can be held before the trigger is even sent.</p>
+  </div>
+
+  <p>The station writes this tag <strong>only when the value changes</strong>, plus once on connection and once whenever PLC settings are applied. Do not treat it as a periodic signal &mdash; <code>Heartbeat</code> is the liveness signal, and after a communication fault <code>Ready</code> freezes at its last written value like every other output.</p>
+
+  <h3>4.5 &nbsp;Bypass &mdash; level, station&nbsp;&rarr;&nbsp;PLC</h3>
   <p>Set from the Overview screen and verified by read-back. Persistent until changed by the HMI or by the controller. On a normal station shutdown the station attempts to clear it, but see 5.3: that attempt is best-effort and the watchdog is the real protection.</p>
 </section>
 
@@ -334,6 +360,9 @@ END_IF;</code></pre>
     <li>Bypass enabled at the HMI sets the tag; disabled clears it.</li>
     <li>A cycle with bypass on still publishes the real result.</li>
     <li>Pulling the network cable mid-cycle: outputs freeze, the watchdog trips, the line ends up safe.</li>
+    <li><em>Ready configured:</em> a commissioned station publishes <code>Ready = 1</code>.</li>
+    <li><em>Ready configured:</em> starting a live camera preview at the HMI drops <code>Ready</code> to 0, and stopping it restores 1.</li>
+    <li><em>Ready configured:</em> <code>Ready</code> stays 1 for the whole of an inspection, and <code>Busy</code> is what reports the cycle.</li>
     <li><em>Acknowledge configured:</em> raising the bit clears all four outputs.</li>
     <li><em>Acknowledge configured:</em> holding the bit high does not clear the next cycle's result.</li>
   </ol>

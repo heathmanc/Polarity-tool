@@ -71,6 +71,47 @@ Details:
 - A configuration with no passcode fails closed: the screens stay locked
   rather than opening.
 
+## Logout and Exit are separate buttons
+
+The single button labelled Logout closed the application. A technician who had
+finished in Settings could only hand the station back to an operator by
+shutting the HMI down and starting it again, which stops inspection.
+
+- **Logout** locks the maintenance screens, returns to Overview, and leaves
+  the station running and inspecting.
+- **Exit** closes the HMI, with the confirmation it always had.
+
+## A station readiness tag for the PLC
+
+Optional, blank by default, so an existing station and its controller are
+unchanged. When configured, the station publishes whether it could accept a
+trigger and grade the part it gets.
+
+Readiness answers **capability**, not the momentary state of a cycle. It stays
+true while an inspection runs -- `Busy` already reports that, and a readiness
+bit that dropped every cycle would flap at cycle rate. The permissive is:
+
+```text
+Safe_To_Trigger := BatteryVision.Ready AND NOT BatteryVision.Busy;
+```
+
+It goes false when the station could not grade a part: no camera, no active
+recipe or reference, an unusable model, or the camera held by a live preview,
+a reference capture, a validation run, an ML capture, or a settings apply.
+
+That last group is the reason the tag is worth configuring. Those are exactly
+the states in which a trigger is silently dropped, so without readiness a
+controller learns the station was unavailable only by timing out. With it, the
+product can be held before the trigger is sent.
+
+The tag is written only when the value changes, plus once on connection and
+once whenever PLC settings are applied. It is not a periodic signal, and after
+a communication fault it freezes at its last written value like every other
+output. The heartbeat remains the only proof the station is alive.
+
+The interface control document and the commissioning handout both carry it,
+with two added verification steps.
+
 ## The mouse wheel no longer changes values
 
 Scrolling over a spin box or a combo box changed it. On a station that
@@ -82,7 +123,7 @@ are unaffected.
 
 ## Verification
 
-414 pytest test functions, expanded by parameterization to 448 collected
+424 pytest test functions, expanded by parameterization to 458 collected
 cases, and four command-line smoke and installation checks pass.
 
 One regression was caught during this work and is worth recording: seeding the

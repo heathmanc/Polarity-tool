@@ -15,6 +15,7 @@ The HMI uses the following default tags. All names remain editable under **Setti
 | HMI heartbeat | `BatteryVision.Heartbeat` | BOOL | HMI → PLC |
 | Inspection bypass request | `BatteryVision.Bypass` | BOOL | HMI → PLC (read back by HMI) |
 | Result acknowledge (optional) | *(blank by default)* | BOOL | PLC → HMI |
+| Station ready (optional) | *(blank by default)* | BOOL | HMI → PLC |
 
 ## Binary result contract
 
@@ -95,6 +96,32 @@ v0.18 replaces the earlier `BatteryVision.FailCode` DINT with the
 `BatteryVision.Fail` BOOL. When an older configuration is loaded, a tag ending
 in `FailCode` is migrated to the same name ending in `Fail`; verify that BOOL
 tag in **Settings → PLC TAGS** before reconnecting a production PLC.
+
+## Station readiness contract
+
+Optional and blank by default. When configured, the HMI publishes whether it
+could accept a trigger and grade the part it gets.
+
+Readiness answers **capability**, not the momentary state of a cycle. It stays
+true while an inspection runs, because `Busy` already reports that. The PLC
+permissive is:
+
+```text
+Safe_To_Trigger := BatteryVision.Ready AND NOT BatteryVision.Busy;
+```
+
+It is false when the station could not grade a part: no camera, no active
+recipe or reference, an unusable model, or the camera held by a live preview,
+a reference capture, a validation run, an ML capture, or a settings apply.
+
+That last group is the reason the tag is worth configuring. Those are exactly
+the states in which a trigger is silently dropped, so without readiness the PLC
+learns the station was unavailable only by timing out.
+
+The tag is written only when the value changes, plus once on connection and
+once whenever PLC settings are applied. It is not a periodic signal, and after
+a communication fault it freezes at its last written value like every other
+output. The heartbeat, not readiness, is what proves the station is alive.
 
 ## Heartbeat contract
 
