@@ -108,3 +108,31 @@ def drain(qapp, *, timeout: float = 60.0) -> None:
         time.sleep(0.01)
     pool.waitForDone(int(max(0.0, deadline - time.monotonic()) * 1000))
     qapp.processEvents()
+
+
+def mark_validated(recipe):
+    """Give a fixture recipe a genuine, configuration-bound validation record set.
+
+    ``Recipe.validation_complete`` deliberately refuses a bare pass count: a
+    record only counts when it is bound to the configuration hash and the
+    inspection engine it was taken on.  Tests that need a runnable production
+    recipe must satisfy that, not fake the counter.
+    """
+
+    from battery_inspector.models import INSPECTION_ENGINE, RecipeStatus
+
+    required = max(1, int(recipe.validation_runs_required))
+    recipe.status = RecipeStatus.VALIDATED
+    recipe.validation_configuration_hash = (
+        recipe.validation_configuration_hash.strip() or "TEST"
+    )
+    recipe.validation_records = [
+        {
+            "disposition": "pass",
+            "configuration_hash": recipe.validation_configuration_hash,
+            "inspection_engine": INSPECTION_ENGINE,
+        }
+        for _ in range(required)
+    ]
+    recipe.validation_runs_passed = required
+    return recipe

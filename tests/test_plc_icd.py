@@ -83,3 +83,21 @@ def test_the_cases_that_publish_nothing_are_documented() -> None:
         "frozen at its last written value",  # communication loss
     ):
         assert behaviour in document, f"the document must state: {behaviour}"
+
+
+def test_the_selector_is_documented_as_deciding_the_recipe() -> None:
+    """The one contract change a controls engineer cannot discover by reading tags.
+
+    The selector used to be a permissive checked against a recipe activated at
+    the HMI. It now decides the recipe. A program written against the old
+    wording would leave a mixed line inhibited on every product change, so the
+    document must not still describe a match.
+    """
+
+    document = _document()
+
+    assert "decides the recipe on every trigger" in document
+    assert "newest revision of that recipe whose validation is complete" in document
+    # Refusal, not substitution, is the safety-relevant half of the contract.
+    assert "never substitutes another recipe" in document
+    assert "does not match the active" not in document

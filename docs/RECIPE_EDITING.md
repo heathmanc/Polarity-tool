@@ -44,7 +44,10 @@ Recipes are treated as immutable production records:
 - every edited revision resets validation to zero;
 - any teach or vision-setting change invalidates earlier validation evidence;
 - a draft cannot activate until locator, classifier, and real-validation gates pass;
-- only one revision is active for the station at a time.
+- the PLC names the product on every trigger; the station grades against the
+  newest revision of that recipe whose validation is complete, so saving a
+  validated revision puts it into production immediately;
+- the station-side selection governs manual triggers only.
 
 ## Coordinate behavior
 

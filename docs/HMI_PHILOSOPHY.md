@@ -22,7 +22,7 @@ The HMI shall help an operator or maintenance technician answer these questions 
 
 ### Level 1 — Station overview
 
-The Overview page is the normal operating display. It shows the machine state, active recipe, session production counts, last acquired image, result, reason, cycle/frame identity, recent session results, PLC commissioning state, and system-health summary. Counts reset at startup so PASS history is not persisted indirectly.
+The Overview page is the normal operating display. It shows the machine state, the recipe that graded the last part, session production counts, last acquired image, result, reason, cycle/frame identity, recent session results, PLC commissioning state, and system-health summary. Counts reset at startup so PASS history is not persisted indirectly.
 
 ### Level 2 — Inspection detail
 

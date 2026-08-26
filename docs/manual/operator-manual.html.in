@@ -495,8 +495,8 @@ footer {
   <h1>Pole Position</h1>
   <p class="standfirst">How to run this station, wire it to the PLC, teach it a new battery, and train the model that reads the terminal stamps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.27.0</dd></div>
-    <div><dt>Document</dt><dd>Rev A</dd></div>
+    <div><dt>Applies to</dt><dd>v0.28.0</dd></div>
+    <div><dt>Document</dt><dd>Rev B</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Replaces</dt><dd>Nothing</dd></div>
   </dl>
@@ -539,7 +539,7 @@ footer {
   <p>This is the state of the machine right now.</p>
   <ul>
     <li><strong>The badge on the left</strong> says <code>READY</code>, <code>DEGRADED</code>, or <code>FAULT</code>. Ready means the station can inspect parts.</li>
-    <li><strong>Active recipe</strong> is the battery the station is set up for, shown as a number and a name.</li>
+    <li><strong>Recipe</strong> is the battery the last part was graded as, shown as a number and a name. The PLC picks it for every part; there is nothing for you to choose.</li>
     <li><strong>Part count, Pass, Fail, Reject rate</strong> are the counters for this run. A supervisor can reset them.</li>
   </ul>
 
@@ -571,7 +571,7 @@ footer {
   <ol>
     <li>Turn the station on and wait for the Overview screen.</li>
     <li>Look at the badge in the top left. It should say <code>READY</code>.</li>
-    <li>Look at the active recipe. It must be the battery you are actually running.</li>
+    <li>Look at the recipe on the header after the first part runs. It must be the battery you are actually running. If it is not, the PLC is asking for the wrong product &mdash; stop and call a technician.</li>
     <li>Look at the strip along the bottom. Camera, PLC, and system health should not be red.</li>
     <li>Run one known-good part and confirm it passes. Run one known-bad part and confirm it rejects.</li>
   </ol>
@@ -660,7 +660,7 @@ footer {
   <p>Stop running parts and call a technician if any of these are true:</p>
   <ul>
     <li>The badge says <code>FAULT</code>, or the answer is <strong>Not ready</strong> or <strong>System fault</strong>.</li>
-    <li>The active recipe is not the battery you are running.</li>
+    <li>The recipe on the header is not the battery you are running.</li>
     <li>Camera or PLC in the bottom strip is red.</li>
     <li>A part you are sure is good rejects, and a second good part rejects too.</li>
     <li><strong>A part you are sure is bad passes.</strong></li>
@@ -853,7 +853,8 @@ END_IF;
     <li><strong>Recipe name</strong> &mdash; the tag is read as a Logix STRING.</li>
     <li><strong>Recipe number</strong> &mdash; the tag is read as SINT, INT, or DINT. Numbers do not change across revisions, which makes them the safer choice for a program that outlives a recipe edit.</li>
   </ul>
-  <p>The active recipe must match the requested name or number before a trigger is accepted. A mismatch is logged and the edge is ignored, as described above.</p>
+  <p>The requested name or number decides the recipe on every trigger. The station finds the newest revision of that recipe whose validation is finished and grades the part against it. Nobody selects a recipe at the HMI for production, and the station can run with no operator at all.</p>
+  <p>If the requested recipe cannot be found &mdash; unknown name or number, or every revision of it is still a draft or retired &mdash; the station refuses the trigger. It never grades the part against a different recipe. The refusal is logged, the <code>Ready</code> tag goes false while the condition lasts, and no result is published.</p>
 
   <h3 id="plc-bypass">Bypass logic</h3>
   <p>Bypass is a request from the station to the controller, written to <code>BatteryVision.Bypass</code> and read back to confirm. The station reads the tag continuously, so a PLC-side change appears in the HMI.</p>
@@ -1085,7 +1086,7 @@ Inspection_Interlock_OK := Bypass_Effective OR BatteryVision.Pass;</code></pre>
     <table>
       <thead><tr><th>How often</th><th>Check</th></tr></thead>
       <tbody>
-        <tr><td>Every shift</td><td>Badge reads <code>READY</code>; the active recipe is the battery being run; one known-good and one known-bad part behave correctly.</td></tr>
+        <tr><td>Every shift</td><td>Badge reads <code>READY</code>; the recipe on the header is the battery being run; one known-good and one known-bad part behave correctly.</td></tr>
         <tr><td>Every shift</td><td>Nothing red in the bottom strip.</td></tr>
         <tr><td>Weekly</td><td>Free disk space on Diagnostics. Clean the lens and check the light has not moved or dimmed.</td></tr>
         <tr><td>Weekly</td><td>Skim the Events screen for changes nobody expected.</td></tr>
@@ -1158,7 +1159,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
     <div><dt>Revision</dt><dd>One saved version of a recipe. Editing makes a new one; old ones are kept and never changed.</dd></div>
     <div><dt>Reference picture</dt><dd>The photo of a known-good battery that every later part is measured against.</dd></div>
     <div><dt>Validation</dt><dd>Running real parts through a new recipe to prove it works before it is allowed to run production.</dd></div>
-    <div><dt>Active recipe</dt><dd>The one recipe the station is using right now. Only one at a time.</dd></div>
+    <div><dt>Recipe selector</dt><dd>The tag the PLC uses to name the battery it is sending. The station picks the matching recipe for every part, so a line can run several products without anybody changing a setting.</dd></div>
     <div><dt>Terminal top</dt><dd>The flat metal face on top of a battery post, where the stamp is.</dd></div>
     <div><dt>Marking</dt><dd>The stamp on the terminal top: plus, minus, or nothing.</dd></div>
     <div><dt>Finish</dt><dd>The color of the metal on the terminal top: silver or brass.</dd></div>
@@ -1175,7 +1176,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position station handbook, Rev A, for application v0.27.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
+  <p><strong>Pole Position station handbook, Rev B, for application v0.28.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
   <p>This document is an unapproved draft. It does not replace your site's approved user manual, and it is not a controlled record until your quality process makes it one. Where this handbook and the station's own behaviour disagree, the station is right and this document needs correcting.</p>
 </footer>
 

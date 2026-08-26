@@ -154,7 +154,7 @@ class RecipesPage(QWidget):
         ):
             detail_layout.addWidget(item)
         detail_layout.addStretch(1)
-        self.activate_button = QPushButton("ACTIVATE SELECTED REVISION")
+        self.activate_button = QPushButton("USE FOR MANUAL TRIGGERS")
         self.activate_button.setObjectName("PrimaryButton")
         self.revisions_button = QPushButton("MANAGE REVISIONS")
         detail_layout.addWidget(self.activate_button)
@@ -327,11 +327,11 @@ class RecipesPage(QWidget):
         )
         self.activate_button.setEnabled(activation_allowed)
         if recipe.status == RecipeStatus.ACTIVE:
-            self.activate_button.setText("ACTIVE REVISION")
+            self.activate_button.setText("IN USE FOR MANUAL TRIGGERS")
         elif activation_allowed:
-            self.activate_button.setText("ACTIVATE SELECTED REVISION")
+            self.activate_button.setText("USE FOR MANUAL TRIGGERS")
         else:
-            self.activate_button.setText("ACTIVATION BLOCKED — NOT READY")
+            self.activate_button.setText("BLOCKED — NOT READY")
         station_model = self.controller.ml_model_info(require_runtime=False)
         current_hash = str(station_model.get("model_sha256", ""))
         needs_ml_revision = bool(
@@ -419,8 +419,11 @@ class RecipesPage(QWidget):
             return
         answer = QMessageBox.question(
             self,
-            "Activate recipe",
-            f"Activate {recipe.name} revision {recipe.revision} for production?",
+            "Select recipe",
+            f"Use {recipe.name} revision {recipe.revision} for manual triggers?\n\n"
+            "PLC triggers are unaffected: the PLC names the product on every "
+            "trigger and the station grades against the newest validated "
+            "revision of the product it names.",
         )
         if answer != QMessageBox.StandardButton.Yes:
             return

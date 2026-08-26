@@ -257,6 +257,57 @@ class RecipeRepository:
             row = connection.execute(sql, params).fetchone()
         return Recipe.from_dict(json.loads(row["payload_json"])) if row else None
 
+    def resolve_production_recipe(
+        self,
+        *,
+        recipe_number: int | None = None,
+        recipe_name: str = "",
+    ) -> Recipe | None:
+        """The revision that grades a part when the PLC names this recipe.
+
+        Production eligibility is **validation**, not a separate activation
+        step: the newest revision of the named recipe whose validation is
+        complete is the one that runs. A revision that has not passed its
+        required independent samples never grades a part, whatever its status
+        says, so the gate that matters is unchanged.
+
+        Returns None when the name or number is unknown, or when the recipe
+        exists but no revision of it has completed validation. The caller must
+        treat that as "this station cannot inspect this product" and refuse the
+        trigger; it must never fall back to some other recipe.
+        """
+
+        if recipe_number is not None and int(recipe_number) > 0:
+            column, value = "recipe_number", int(recipe_number)
+        elif recipe_name.strip():
+            column, value = "name", recipe_name.strip()
+        else:
+            return None
+
+        with self._connection() as connection:
+            rows = connection.execute(
+                f"SELECT payload_json FROM recipes WHERE {column} = ? "  # noqa: S608
+                "ORDER BY revision DESC",
+                (value,),
+            ).fetchall()
+
+        for row in rows:
+            recipe = Recipe.from_dict(json.loads(row["payload_json"]))
+            if recipe.status is RecipeStatus.RETIRED:
+                continue
+            if recipe.validation_complete:
+                return recipe
+        return None
+
+    def production_recipe_count(self) -> int:
+        """How many products this station could inspect if asked."""
+
+        return sum(
+            1
+            for recipe in self.list_latest_recipes()
+            if self.resolve_production_recipe(recipe_number=recipe.recipe_number) is not None
+        )
+
     def get_active_recipe(self) -> Recipe | None:
         with self._connection() as connection:
             row = connection.execute(

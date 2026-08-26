@@ -227,7 +227,7 @@ def test_every_wizard_step_can_be_prepared(qapp, wizard) -> None:
         assert wizard.stack.currentIndex() == index
 
     # The final step commits, so its primary action stops saying NEXT.
-    assert wizard.next_button.text() in {"SAVE DRAFT", "SAVE & ACTIVATE"}
+    assert wizard.next_button.text() in {"SAVE DRAFT", "SAVE FOR PRODUCTION"}
 
 
 def test_wizard_back_navigation_returns_to_the_first_step(qapp, wizard) -> None:

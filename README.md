@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.27.0** source
+This README is the current project and handoff guide for the **v0.28.0** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.27.0` |
-| Release tag | `v0.27.0` |
+| Application version | `0.28.0` |
+| Release tag | `v0.28.0` |
 | Tagged commit | `acb8b16dd70845c8624805a744a811fb29c42403` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -76,8 +76,12 @@ Recorded project status at this handoff point:
 - v0.27.0 changes what makes a recipe validation sample count so a fixed-stop
   fixture can validate, makes the sample count a station setting, puts ML
   Training and Settings behind a maintenance passcode, and stops the mouse
-  wheel changing values. It also separates Logout from Exit, and adds an
-  optional PLC station-readiness tag. See `docs/RELEASE_NOTES_v0.27.0.md`.
+  wheel changing values. See `docs/RELEASE_NOTES_v0.27.0.md`.
+- v0.28.0 makes the PLC selector decide the recipe on every trigger instead of
+  being checked against an activated one, so a mixed line needs no operator and
+  the station can run headless. It also publishes station readiness to the PLC
+  and separates Logout from Exit. **Controls engineers must re-read the ICD.**
+  See `docs/RELEASE_NOTES_v0.28.0.md`.
 - v0.26.0 adds a live camera preview on the CAMERA IMAGE tab and exposes white
   balance, black level, and gamma. White balance in particular is an inspection
   setting: the silver/brass check compares colour against the recipe reference,
@@ -345,7 +349,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.27.0-Setup-x64.exe
+Pole-Position-v0.28.0-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -415,12 +419,13 @@ accept/false reject performance on the site's population.
 
 ### Before production
 
-1. Confirm the header shows the intended recipe number and name.
+1. Confirm the header shows the recipe that graded the last part, and that it
+   is the intended product.
 2. Confirm the station is Ready and not in Demo, Simulation, Bypass, Not Ready,
    or Fault unless that condition is deliberate and authorized.
 3. Check camera and PLC health.
-4. Verify the physical product and PLC recipe selection agree with the active
-   HMI recipe.
+4. Verify the PLC recipe selection names the physical product on the line. The
+   PLC selection decides the recipe; there is nothing to select at the HMI.
 5. Confirm lighting, lens cleanliness, camera mount, and battery stop position
    are normal under the site procedure.
 
@@ -687,10 +692,15 @@ The single configured recipe selector tag can be interpreted as:
 - **Recipe name** — Logix STRING; or
 - **Recipe number** — Logix SINT, INT, or DINT.
 
-The received value must match the active recipe before a PLC trigger is
-accepted. Recipe numbers are stable across revisions.
+The received value decides the recipe on every trigger: the station resolves it
+to the newest revision of that recipe whose validation is complete, and grades
+the part against that revision. There is no activation step and no station-side
+selection in the PLC path, so a mixed line needs no operator and the station can
+run headless. Recipe numbers are stable across revisions.
 
-As built in v0.25.0, a mismatched requested recipe is logged and the trigger is
+A recipe that cannot be resolved -- unknown name/number, or only draft or
+retired revisions -- is refused and never substituted. The refusal is logged,
+Ready goes false while the condition persists, and the trigger is
 ignored; the HMI does not start a cycle or publish a synthetic FAIL for that
 edge. The PLC must prevent product advance and implement its site-standard
 timeout/fault response to a request that does not produce Busy/Complete.
@@ -1091,9 +1101,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.27.0-Setup-x64.exe
-dist\windows\Pole-Position-v0.27.0-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.27.0-requirements-lock.txt
+dist\windows\Pole-Position-v0.28.0-Setup-x64.exe
+dist\windows\Pole-Position-v0.28.0-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.28.0-requirements-lock.txt
 ```
 
 The build:
@@ -1206,7 +1216,7 @@ no-decision, and localization failure rates against approved limits.
 | Physical camera not available | pylon runtime/driver, USB3 cable/port/power, camera enumeration, first-device selection, `camera_probe.py --grab`, and Camera source mode |
 | HMI shows Demo fallback | Camera source is Auto and no usable Basler device opened. Correct hardware and apply/test, or select Basler required for production fail-closed behavior |
 | PLC stays faulted | Confirm pycomm3 mode, Logix route, network, tag names/types, output BOOL writability, selector type, bypass tag, and heartbeat write. It will not fall back automatically |
-| PLC trigger does nothing | Trigger needs a new rising edge; requested recipe must match active recipe; PLC polling must be healthy; camera may have one queued PLC cycle |
+| PLC trigger does nothing | Trigger needs a new rising edge; the requested recipe must resolve to a validated revision (check Ready); PLC polling must be healthy; camera may have one queued PLC cycle |
 | PLC waits forever for Complete to clear | v0.25.0 latches the completed result until the next Busy or reconnect/apply, unless the optional acknowledge tag is configured. There is no clear-on-trigger-low state |
 | Complete arrives with Fail | Inspect HMI detail/evidence. Every non-PASS PLC cycle maps to Fail; there is no reason code |
 | PASS has no evidence folder/export | Expected memory-only PASS policy |
@@ -1248,6 +1258,10 @@ them:
 12. PLC mode never falls back to Simulation automatically.
 13. Recipe number remains stable across revisions and can be selected through
     an integer Logix tag.
+13a. The PLC selector decides the recipe on every trigger. The station resolves
+    it to the newest validated revision of the named recipe and grades against
+    that; an unresolvable selection is refused, never substituted, and drops
+    Ready. No production path requires an operator to select a recipe.
 14. Bypass never manufactures PASS and must be owned by PLC interlock logic.
 15. Camera selection remains first available and serial-independent.
 16. Production model weights remain separate from the Windows installer.
@@ -1262,11 +1276,14 @@ the complete regression and station acceptance scope affected by the change.
 The following are current as-built boundaries, not hidden completed features:
 
 - **No role-based authentication or authorization.** The technician name is an
-  editable attribution string and Logout exits the program.
+  editable attribution string. Logout locks the ML Training and Settings
+  screens behind the maintenance passcode and returns to Overview; Exit closes
+  the program.
 - **No PLC sequence/acknowledgement transaction.** The current interface is a
   rising-edge trigger with latched latest result as documented above.
-- **Recipe mismatch is ignored/logged, not converted into a completed Fail
-  transaction.** PLC timeout/permissive logic must handle it.
+- **An unresolvable recipe selection is refused/logged and drops Ready, not
+  converted into a completed Fail transaction.** PLC timeout/permissive logic
+  must handle it.
 - **Lighting is not measured.** The station has no lighting measurement path,
   so the indicator reports `NOT MONITORED` rather than a health claim it cannot
   substantiate. Use Windows/site monitoring for lighting.
@@ -1403,7 +1420,8 @@ this README, current source, or current subsystem documents.
 | v0.24.0 | Recipe-editor gate preservation; rejecting terminal marked red; page layout no longer compresses on scaled displays; CUDA PyTorch retained through the build |
 | v0.25.0 | Optional PLC result-acknowledge handshake, off by default |
 | v0.26.0 | Live camera preview; white balance, black level and gamma exposed |
-| v0.27.0 | Validation counts a different confirmed part or a moved one; validation sample count is a station setting; ML Training and Settings behind a passcode; wheel cannot change values; Logout separate from Exit; optional PLC station-readiness tag |
+| v0.27.0 | Validation counts a different confirmed part or a moved one; validation sample count is a station setting; ML Training and Settings behind a passcode; wheel cannot change values |
+| v0.28.0 | PLC selector decides the recipe every trigger; unresolvable selection refused and drops Ready; optional PLC station-readiness tag; Logout separate from Exit |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1439,7 +1457,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.27.0 installer, `.sha256`, and requirements lock
+- [ ] v0.28.0 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.run_state)
         layout.addSpacing(14)
 
-        self.active_recipe_metric = MetricCard("Active recipe", "—")
+        self.active_recipe_metric = MetricCard("Recipe", "—")
         self.part_metric = MetricCard("Part count", "0")
         self.pass_metric = MetricCard("Pass", "0")
         self.fail_metric = MetricCard("Fail", "0")
@@ -349,6 +349,11 @@ class MainWindow(QMainWindow):
 
     def set_inspection(self, result: InspectionResult) -> None:
         self._last_inspection = result
+        # The PLC names the product on every trigger, so the recipe shown in the
+        # header is whatever actually graded the last part -- not a station
+        # selection that may have had nothing to do with it.
+        if result.is_product_result and result.recipe_name:
+            self.active_recipe_metric.set_value(result.recipe_name)
         self.overview_page.set_inspection(result)
         self.inspection_page.set_inspection(result)
         self._refresh_run_state()

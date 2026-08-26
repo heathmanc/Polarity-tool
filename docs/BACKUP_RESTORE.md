@@ -123,7 +123,7 @@ file only after the archive is complete.
 6. Start Pole Position again. Before camera, PLC, ML, or database services open,
    the application creates a rollback ZIP and applies the restore.
 7. A completion message identifies the rollback ZIP.
-8. Confirm the active recipe, camera settings, PLC mode/address/tags, installed
+8. Confirm the restored recipes, camera settings, PLC mode/address/tags, installed
    model, and system readiness before returning the station to production.
 
 Stored absolute paths under the old runtime/project roots are rewritten for the
@@ -152,7 +152,7 @@ PC's hardware installation. After restore, verify:
 - Camera exposure, gain, resolution, and a fresh test capture.
 - PLC mode, Logix path, tag types/names, heartbeat, and binary Pass/Fail
   handshake.
-- Active recipe number/name and reference image.
+- Recipe numbers/names and reference images for every product the PLC can name.
 - Installed ONNX model identity and runtime check.
 - One known-good and one known-reject validation cycle under the approved site
   procedure.

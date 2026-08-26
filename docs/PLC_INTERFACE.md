@@ -161,13 +161,27 @@ of:
 - **Recipe name** — the configured selector tag is read as a Logix STRING.
 - **Recipe number** — the configured selector tag is read as SINT, INT, or DINT.
 
-The active recipe must match the received name or number before a PLC trigger is
-accepted. Recipe numbers remain unchanged across revisions.
+The PLC names the product on every trigger, and that name decides the recipe.
+Nobody selects a recipe at the HMI for production: the station resolves the
+received name or number to the **newest revision of that recipe whose validation
+is complete**, and grades the part against it. There is no activation step and
+no station-side recipe selection in the PLC path, so a mixed line needs no
+operator intervention and the station can run headless. Recipe numbers remain
+unchanged across revisions, so the PLC keeps naming the same number as recipes
+are revised.
 
-When the requested recipe does not match, v0.24.0 logs the mismatch and ignores
-that trigger edge; it does not publish a synthetic FAIL transaction. The PLC
+A resolution that fails is refused, never substituted. If the received name or
+number is unknown, or the only revisions of it are drafts or retired, the
+station logs the refusal and ignores that trigger edge; it does not grade the
+part against anything else and does not publish a synthetic FAIL transaction.
+The **Ready** tag goes false for as long as the PLC names an unrunnable product,
+so a misconfigured line is visible as a state and not only as a timeout. The PLC
 must keep the product inhibited and apply its site-standard timeout/fault logic
 when Busy/Complete does not follow a request.
+
+When no selector tag is configured at all, and for a manual trigger from the
+HMI, the station falls back to the recipe selected on the Recipes page. That is
+the simulation and bench path.
 
 ## Bypass contract
 

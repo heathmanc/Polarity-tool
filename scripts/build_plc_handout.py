@@ -133,15 +133,15 @@ def assemble() -> str:
   <h1>PLC Commissioning</h1>
   <p class="standfirst">Tag map, cycle sequencing, heartbeat and watchdog, recipe selection, bypass logic, and the commissioning steps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.27.0</dd></div>
-    <div><dt>Document</dt><dd>Rev A</dd></div>
+    <div><dt>Applies to</dt><dd>v0.28.0</dd></div>
+    <div><dt>Document</dt><dd>Rev B</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Extract of</dt><dd>Station handbook, part 03</dd></div>
   </dl>
 </header>
 <section class="part" id="plc">{section}</section>
 <footer>
-  <p><strong>Extracted from the Pole Position station handbook, part 03, for application v0.27.0.</strong>
+  <p><strong>Extracted from the Pole Position station handbook, part 03, for application v0.28.0.</strong>
   Rebuild with <code>scripts/build_plc_handout.py</code> so this handout and the handbook cannot drift apart.</p>
   <p>Pole Position is a quality inspection system. It is not a safety PLC, a guard, or an
   emergency stop. The controller owns the line permissive, reject, stop, and bypass logic.

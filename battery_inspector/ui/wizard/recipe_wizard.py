@@ -1370,13 +1370,15 @@ class ReviewPage(WizardPage):
     def _update_action(self) -> None:
         production = self._validation_complete() and self.activate.isChecked()
         if production:
-            self.state.setText("SAVE AND ACTIVATE")
+            self.state.setText("SAVE FOR PRODUCTION")
             self.state.setStyleSheet(
                 f"color: {GOOD}; font-size: 21px; font-weight: 800;"
             )
             self.warning.setText(
-                "This immutable revision will become the active production recipe. "
-                "The previously active revision remains available for rollback."
+                "This immutable revision is validated, so the station will grade "
+                "against it as soon as it is saved: the PLC names the product on "
+                "every trigger and the newest validated revision of that product "
+                "wins. Earlier revisions remain stored for rollback."
             )
             self.warning.setStyleSheet(
                 f"color: {GOOD}; padding: 10px; background: {GOOD_BG}; "
@@ -1388,8 +1390,9 @@ class ReviewPage(WizardPage):
                 f"color: {AMBER}; font-size: 21px; font-weight: 800;"
             )
             self.warning.setText(
-                "The revision will be stored without changing the active production recipe. "
-                "A draft can be reopened, revalidated, and activated later."
+                "A draft is never used to grade a part. It will be stored and "
+                "ignored by both PLC and manual triggers until it is reopened, "
+                "validated, and saved for production."
             )
             self.warning.setStyleSheet(
                 f"color: {AMBER}; padding: 10px; background: {AMBER_BG}; "
@@ -1547,7 +1550,7 @@ class RecipeWizardDialog(QDialog):
         if isinstance(review_page, ReviewPage):
             review_page.action_changed.connect(
                 lambda activate: self.next_button.setText(
-                    "SAVE & ACTIVATE" if activate else "SAVE DRAFT"
+                    "SAVE FOR PRODUCTION" if activate else "SAVE DRAFT"
                 )
             )
         root.addWidget(self.stack, 1)
@@ -1582,7 +1585,7 @@ class RecipeWizardDialog(QDialog):
         self.back_button.setDisabled(index == 0)
         if index == len(self.pages) - 1:
             self.next_button.setText(
-                "SAVE & ACTIVATE"
+                "SAVE FOR PRODUCTION"
                 if self.data.activate_on_finish
                 else "SAVE DRAFT"
             )

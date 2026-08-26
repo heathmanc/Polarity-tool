@@ -32,7 +32,7 @@ from battery_inspector.models import (
     TerminalRole,
 )
 
-from conftest import drain
+from conftest import drain, mark_validated
 
 
 def _reference_capture(directory, name: str = "reference.png") -> ReferenceCapture:
@@ -267,8 +267,12 @@ def test_recipe_number_mismatch_blocks_the_trigger_and_is_logged_once(
 def test_matching_recipe_number_allows_the_trigger(
     qapp, controller, tmp_path, monkeypatch
 ) -> None:
+    """The PLC names 7, and a validated revision of 7 exists to grade against."""
+
     reference = _reference_capture(tmp_path / "ref")
-    controller.active_recipe = controller.save_recipe(_recipe(reference, number=7))
+    controller.active_recipe = controller.save_recipe(
+        mark_validated(_recipe(reference, number=7))
+    )
     started: list[str] = []
     monkeypatch.setattr(
         controller, "run_inspection", lambda source="MANUAL": started.append(source)

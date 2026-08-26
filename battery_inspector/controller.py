@@ -1441,6 +1441,58 @@ class AppController(QObject):
         self._end_activity("validation")
         self._resume_queued_work()
 
+    # --- which recipe grades this part --------------------------------------
+    #
+    # The controller no longer holds one recipe that everything grades against.
+    # The PLC names a product on every trigger, and the station resolves that
+    # name to the newest revision of that recipe whose validation is complete.
+    # Nobody selects a recipe for production, which is what lets this station
+    # run a mixed line and, eventually, run headless.
+    #
+    # `active_recipe` remains, and remains the station's own choice, but its
+    # job is now narrower: it is what a manual trigger at the HMI grades
+    # against, and what the station falls back to when no PLC selector is
+    # configured. It is never consulted for a PLC-triggered cycle.
+
+    def _requested_selector(self) -> tuple[int | None, str]:
+        """The recipe the PLC is currently naming, as (number, name)."""
+
+        state = dict(self._last_plc_state)
+        selector = str(state.get("recipe_selector", self.config.plc_recipe_selector))
+        if selector == "number":
+            raw = state.get("recipe_number")
+            return (int(raw) if raw is not None else 0), ""
+        return None, str(state.get("recipe_name", "") or "").strip()
+
+    def _plc_selector_is_configured(self) -> bool:
+        number, name = self._requested_selector()
+        return bool((number or 0) > 0 or name)
+
+    def resolve_recipe_for_trigger(self, trigger_source: str) -> Recipe | None:
+        """The recipe this trigger must be graded against, or None to refuse.
+
+        None never means "use something else". A trigger the station cannot
+        resolve is refused, because grading a product against another product's
+        recipe is the one outcome worse than not inspecting it.
+        """
+
+        if trigger_source.upper() != "PLC":
+            # Manual triggers, and every simulation without a PLC, grade
+            # against the recipe a technician selected at the HMI.
+            return self.active_recipe
+
+        number, name = self._requested_selector()
+        if not self._plc_selector_is_configured():
+            # The controller is not naming a product. Fall back to the
+            # station's own selection so a bench PLC without a selector tag
+            # still works exactly as it did.
+            return self.active_recipe
+
+        return self.repository.resolve_production_recipe(
+            recipe_number=number,
+            recipe_name=name,
+        )
+
     def station_ready_for_trigger(self) -> bool:
         """Can this station accept a trigger and grade the part it gets?
 
@@ -1466,7 +1518,19 @@ class AppController(QObject):
 
         if not self.camera.connected:
             return False
-        if not bool(self.inspection_readiness().get("ready")):
+        # Readiness follows the product the controller is currently naming. If
+        # it is naming one this station cannot run -- unknown number, or no
+        # validated revision -- readiness goes false, so the controller sees a
+        # misconfigured line as a state rather than only as a timeout.
+        target = self.resolve_recipe_for_trigger("PLC")
+        if target is None:
+            # Either nothing is selectable at all, or the controller is naming
+            # a product this station cannot run. Both are "do not trigger me".
+            # This must not fall through to inspection_readiness(), which
+            # defaults a None recipe back to the station selection and would
+            # report a refused product as ready.
+            return False
+        if not bool(self.inspection_readiness(target).get("ready")):
             return False
         return not (
             self._startup_in_flight
@@ -2128,13 +2192,20 @@ class AppController(QObject):
                 self._pending_inspection_trigger_source = source
             return False
 
+        # The recipe this trigger resolved to, not the station's selection: for
+        # a PLC cycle those are unrelated.
+        target = self.resolve_recipe_for_trigger(source)
+        if source == "PLC" and target is None:
+            # The controller named a product this station cannot run. Refuse
+            # rather than grading it against anything else; the refusal has
+            # already been logged where the selector was read.
+            return False
+
         self._inspection_in_flight = True
         cycle = self._begin_cycle_status(source)
         self._begin_activity("inspection", "ACQUIRING")
         recipe_snapshot = (
-            Recipe.from_dict(self.active_recipe.to_dict())
-            if self.active_recipe is not None
-            else None
+            Recipe.from_dict(target.to_dict()) if target is not None else None
         )
         task = ServiceTask(
             self._execute_inspection_cycle,
@@ -2454,32 +2525,28 @@ class AppController(QObject):
             raw_number = state.get("recipe_number")
             requested_number = int(raw_number) if raw_number is not None else 0
             requested_display = str(requested_number) if requested_number > 0 else ""
-            active_display = (
-                str(self.active_recipe.recipe_number) if self.active_recipe else "NO ACTIVE RECIPE"
-            )
-            mismatch_present = bool(
-                requested_number > 0
-                and self.active_recipe
-                and requested_number != self.active_recipe.recipe_number
-            )
         else:
             requested_display = str(state.get("recipe_name", "")).strip()
-            active_display = self.active_recipe.name if self.active_recipe else "NO ACTIVE RECIPE"
-            mismatch_present = bool(
-                requested_display
-                and self.active_recipe
-                and requested_display != self.active_recipe.name
-            )
-        if mismatch_present:
-            mismatch = f"{selector}:{requested_display}|{active_display}"
-            if mismatch != self._last_plc_recipe_mismatch:
+        # The controller names the product; the station resolves it. There is no
+        # station-selected recipe for the request to disagree with any more, so
+        # the only question is whether this station can run what was asked.
+        if self.resolve_recipe_for_trigger("PLC") is None and self._plc_selector_is_configured():
+            unavailable = f"{selector}:{requested_display}"
+            if unavailable != self._last_plc_recipe_mismatch:
                 self._add_event(
                     "PLC",
-                    f"PLC requested recipe {requested_display}, but active recipe is {active_display}",
+                    f"PLC requested recipe {requested_display}, which this station "
+                    "cannot run: no validated revision exists for it",
+                    details={"selector": selector, "requested": requested_display},
                 )
-                self._last_plc_recipe_mismatch = mismatch
+                self._last_plc_recipe_mismatch = unavailable
+                # Readiness reflects the requested product, so this transition
+                # has to reach the controller.
+                self._publish_plc_ready()
             return
-        self._last_plc_recipe_mismatch = ""
+        if self._last_plc_recipe_mismatch:
+            self._last_plc_recipe_mismatch = ""
+            self._publish_plc_ready()
         if trigger_edge:
             if self._plc_result_outstanding and not self._plc_unacknowledged_reported:
                 # The controller is triggering again without having taken the

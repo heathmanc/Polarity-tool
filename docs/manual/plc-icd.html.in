@@ -3,8 +3,8 @@
   <h1>PLC Interface Control Document</h1>
   <p class="standfirst">Every signal the station reads, every signal it writes, how long each one holds its state, and what the controller must do about it.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.27.0</dd></div>
-    <div><dt>Document</dt><dd>Rev A</dd></div>
+    <div><dt>Applies to</dt><dd>v0.28.0</dd></div>
+    <div><dt>Document</dt><dd>Rev B</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Audience</dt><dd>Controls engineer</dd></div>
   </dl>
@@ -130,15 +130,18 @@
 
   <p>Configure the tag as one of:</p>
   <ul>
-    <li><strong>Recipe name</strong> &mdash; read as a Logix STRING and compared to the active recipe's name.</li>
+    <li><strong>Recipe name</strong> &mdash; read as a Logix STRING.</li>
     <li><strong>Recipe number</strong> &mdash; read as SINT, INT, or DINT. Numbers are stable across recipe revisions, which makes them the safer choice for a program that outlives a recipe edit.</li>
   </ul>
+
+  <p><strong>The selector decides the recipe on every trigger.</strong> The station does not hold one recipe chosen by an operator; it resolves what the controller names to the newest revision of that recipe whose validation is complete, and grades the part against it. Nobody has to select anything at the HMI, a mixed line needs no operator intervention, and the station can run headless. There is no activation step and no acknowledgement that a recipe change was accepted &mdash; the change takes effect on the next trigger.</p>
 
   <p>The selector is read <strong>in the same request as the trigger</strong>, so the two are always consistent with each other. It must be settled before the trigger rises.</p>
 
   <div class="note care">
-    <span class="tag">A mismatch produces no result at all</span>
-    <p>If the requested recipe does not match the active one, the station logs the mismatch, <strong>ignores that trigger edge, and publishes nothing</strong>. It does not write a synthetic <code>Fail</code>. <code>Busy</code> and <code>Complete</code> stay where they were. The controller must keep the product inhibited and time out.</p>
+    <span class="tag">An unrunnable product produces no result at all</span>
+    <p>If the named recipe cannot be resolved &mdash; the name or number is unknown, or every revision of it is still a draft or has been retired &mdash; the station logs the refusal, <strong>ignores that trigger edge, and publishes nothing</strong>. It never substitutes another recipe. It does not write a synthetic <code>Fail</code>. <code>Busy</code> and <code>Complete</code> stay where they were. The controller must keep the product inhibited and time out.</p>
+    <p><code>Ready</code> goes false for as long as the selector names an unrunnable product, so this condition is visible as a state before a trigger is ever sent. Watch <code>Ready</code> after a selector change.</p>
   </div>
 
   <h3>3.3 &nbsp;Acknowledge &mdash; edge, PLC&nbsp;&rarr;&nbsp;station, optional</h3>
@@ -227,7 +230,8 @@
   <p>It goes low when the station could not grade a part if triggered:</p>
   <ul>
     <li>no camera, or the camera has faulted;</li>
-    <li>no active recipe, no reference image, or an unusable model &mdash; whatever the station reports as a blocking readiness issue;</li>
+    <li>the recipe the selector currently names cannot be resolved to a validated revision;</li>
+    <li>no reference image, or an unusable model &mdash; whatever the station reports as a blocking readiness issue for that recipe;</li>
     <li>the camera is held by something that is not an inspection: a <strong>live camera preview</strong>, a recipe reference capture, a validation run, an ML training capture, or a settings apply.</li>
   </ul>
 
@@ -268,7 +272,7 @@
     <table>
       <thead><tr><th>Situation</th><th>What the station does</th><th>What the controller sees</th></tr></thead>
       <tbody>
-        <tr><td>Requested recipe does not match the active recipe</td><td>Logs the mismatch, ignores the trigger edge</td><td>No <code>Busy</code>, no <code>Complete</code></td></tr>
+        <tr><td>Selector names a recipe with no validated revision</td><td>Logs the refusal, ignores the trigger edge</td><td><code>Ready</code> low; no <code>Busy</code>, no <code>Complete</code></td></tr>
         <tr><td>Trigger pulses entirely while <code>Busy</code> is high</td><td>Never observes it</td><td>No second cycle, nothing logged</td></tr>
         <tr><td>Operator runs a manual inspection at the HMI</td><td>Grades the part and records it locally</td><td><strong>Nothing.</strong> Manual cycles never touch the PLC tags</td></tr>
       </tbody>
@@ -369,6 +373,6 @@ END_IF;</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position PLC Interface Control Document, Rev A, for application v0.27.0.</strong> Generated from the station's own interface specification by <code>scripts/build_plc_icd.py</code>. Where this document and the station's behaviour disagree, the station is right and this document needs correcting.</p>
+  <p><strong>Pole Position PLC Interface Control Document, Rev B, for application v0.28.0.</strong> Generated from the station's own interface specification by <code>scripts/build_plc_icd.py</code>. Where this document and the station's behaviour disagree, the station is right and this document needs correcting.</p>
   <p>This document is an unapproved draft and is not a controlled record until your quality process makes it one.</p>
 </footer>

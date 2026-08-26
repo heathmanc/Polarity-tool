@@ -130,13 +130,13 @@ class DiagnosticsPage(QWidget):
         vision_header.addWidget(self.vision_state)
         vision_layout.addLayout(vision_header)
         vision_note = QLabel(
-            "The active recipe must have a verified reference, validated battery registration, "
+            "Every recipe the PLC can name must have a verified reference, validated battery registration, "
             "rotation-invariant polarity classification, and current physical validation evidence."
         )
         vision_note.setProperty("muted", True)
         vision_note.setWordWrap(True)
         vision_layout.addWidget(vision_note)
-        self.vision_reference = LabeledValue("Active recipe reference", "—")
+        self.vision_reference = LabeledValue("Selected recipe reference", "—")
         self.vision_locator = LabeledValue("Battery localization", "—")
         self.vision_classifier = LabeledValue("Polarity classifier", "—")
         self.vision_ml_model = LabeledValue("Station ML model", "—")

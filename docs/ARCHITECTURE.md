@@ -35,7 +35,9 @@ UI never manufactures an inspection result independently of the pipeline.
 ## Authoritative inspection path
 
 Manual, PLC Simulation, and pycomm3 triggers all call the same controller cycle.
-The controller snapshots the active recipe, establishes a unique cycle ID,
+The controller resolves the recipe for the trigger -- the PLC selector names
+the product, and the newest validated revision of it is snapshotted -- then
+establishes a unique cycle ID,
 acquires one fresh `CameraFrame`, and gives that frame to the pipeline. Startup
 never grades an image.
 
@@ -216,7 +218,8 @@ but are not persisted as station requirements.
 
 The pipeline is fail-closed. It emits PASS or product REJECT only when:
 
-- a reference-backed active recipe is available;
+- the recipe the PLC selector names resolves to a reference-backed validated
+  revision;
 - the immutable reference file exists;
 - real validation records match the current configuration fingerprint;
 - the locator and classifier report ready;

@@ -4,7 +4,7 @@ The file `battery_inspector/assets/ui_reference.png` is the approved light-theme
 
 ## Fixed composition
 
-1. Top header with brand, authoritative machine state, active recipe, part/pass/fail/reject counters, and current user.
+1. Top header with brand, authoritative machine state, the recipe that graded the last part, part/pass/fail/reject counters, and current user.
 2. Left navigation rail: Overview, Inspection, Recipes, ML Training, Diagnostics, Events, Settings, Logout.
 3. Central stacked page area.
 4. Bottom health strip: camera, lighting, PLC, disk, aggregate system status, current user, and Help.
