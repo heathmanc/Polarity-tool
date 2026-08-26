@@ -5,8 +5,12 @@
 1. Open **Recipes**.
 2. Select the product to change.
 3. Select **EDIT / NEW REVISION**, or double-click the recipe row.
-4. Choose **CAPTURE NEW REFERENCE** (recommended), **KEEP EXISTING REFERENCE**, or **CANCEL**.
-5. If capturing, review the fresh frame, retake as needed, and select **USE THIS IMAGE**.
+4. Step 1 opens on the reference image. Choose **CAPTURE NEW REFERENCE**
+   (recommended) or **KEEP EXISTING REFERENCE**. The step shows the existing
+   reference, the current frame, and the quality gate, so the decision is made
+   with those in view rather than before them.
+5. If capturing, review the fresh frame. The same button now reads **RETAKE**;
+   use it until the frame is right, then select **USE THIS IMAGE**.
 6. Confirm the battery outline and orientation reference.
 7. Teach the physical negative and positive terminal search ROIs.
 8. Adjust the dashed marking ROI inside each enlarged terminal crop.

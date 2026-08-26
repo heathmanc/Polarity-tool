@@ -369,39 +369,22 @@ class RecipesPage(QWidget):
         self._open_wizard(initial_reference_action="choose")
 
     def open_edit_recipe_wizard(self) -> None:
+        """Open the wizard on its reference step, which asks the question itself.
+
+        This used to put a dialog in front of the wizard asking whether to
+        capture a new reference or keep the existing one -- and then step 1
+        asked exactly the same thing, with the same two buttons. Worse, the
+        dialog asked blind: the technician could not see the existing reference,
+        the current scene, or the quality gate, which are the things the answer
+        depends on. Step 1 shows all three, and still refuses to continue until
+        one of them is chosen explicitly, so nothing about the reference policy
+        is relaxed by dropping the dialog.
+        """
+
         recipe = self.selected_recipe()
         if recipe is None:
             return
-
-        next_revision = recipe.revision + 1
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("Edit recipe — reference image")
-        dialog.setIcon(QMessageBox.Icon.Question)
-        dialog.setText(
-            f"Create {recipe.name} revision {next_revision}.\n\n"
-            "Choose the reference-image action for the new immutable revision."
-        )
-        dialog.setInformativeText(
-            "Capture New Reference is recommended. Keeping the existing reference "
-            "still requires an explicit confirmation."
-        )
-        capture = dialog.addButton("CAPTURE NEW REFERENCE", QMessageBox.ButtonRole.AcceptRole)
-        keep = dialog.addButton("KEEP EXISTING REFERENCE", QMessageBox.ButtonRole.ActionRole)
-        cancel = dialog.addButton(QMessageBox.StandardButton.Cancel)
-        keep.setEnabled(
-            bool(
-                recipe.reference_image
-                and recipe.reference_image.path
-                and Path(recipe.reference_image.path).is_file()
-            )
-        )
-        dialog.setDefaultButton(capture)
-        dialog.exec()
-        clicked = dialog.clickedButton()
-        if clicked is cancel or clicked is None:
-            return
-        action = "keep" if clicked is keep else "capture"
-        self._open_wizard(recipe=recipe, initial_reference_action=action)
+        self._open_wizard(recipe=recipe, initial_reference_action="choose")
 
     def _recipe_saved_from_wizard(self, recipe: Recipe, activate: bool) -> None:
         del activate

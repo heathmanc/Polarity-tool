@@ -507,3 +507,74 @@ def test_the_terminal_that_rejected_the_part_is_drawn_red_and_heavier(
         assert search.color == ROLE_POSITIVE
         assert marking.color == ROI_MARKING
         assert search.line_width < FAILED_ROI_LINE_WIDTH
+
+
+def test_the_reference_step_offers_one_capture_control(qapp, controller) -> None:
+    """One action, one button.
+
+    The step had CAPTURE NEW REFERENCE and RETAKE side by side, wired to the
+    same slot and both visible once a capture existed. Two controls for one
+    action read as a choice that is not there.
+    """
+
+    from battery_inspector.ui.wizard.recipe_wizard import ReferenceCapturePage
+
+    dialog = RecipeWizardDialog(controller=controller, username="test")
+    try:
+        page = dialog.pages[0]
+        assert isinstance(page, ReferenceCapturePage)
+        assert not hasattr(page, "retake_button"), "the duplicate control is back"
+
+        # Before a capture the button offers the capture; after one it offers
+        # the retake, which is what the page's own guidance tells the operator
+        # to select.
+        assert page.pending_reference is None
+        page.prepare()
+        assert page.capture_button.text() == ReferenceCapturePage.CAPTURE_LABEL
+
+        assert page.use_button.isHidden() is True
+
+        page.pending_reference = _stub_capture()
+        page.prepare()
+        assert page.capture_button.text() == ReferenceCapturePage.RETAKE_LABEL
+        # Derived from the page's own state rather than set by the capture
+        # handler, so returning to this step cannot disagree with it.
+        assert page.use_button.isHidden() is False
+    finally:
+        dialog.reject()
+        qapp.processEvents()
+
+
+def _stub_capture():
+    from battery_inspector.models import ReferenceCapture
+
+    return ReferenceCapture(
+        capture_id="CAP-1",
+        path="",
+        sha256="",
+        captured_at_utc="",
+        width_px=64,
+        height_px=64,
+    )
+
+
+def test_editing_a_recipe_does_not_ask_before_the_wizard_asks(qapp, window) -> None:
+    """The reference question belongs on the step that can show the images.
+
+    A dialog used to ask capture-or-keep before the wizard opened, and then
+    step 1 asked the same thing with the same two buttons. The dialog asked
+    blind -- no existing reference on screen, no current scene, no quality
+    gate -- so it was the worse of the two places to answer.
+    """
+
+    source = (ROOT / "battery_inspector" / "ui" / "pages" / "recipes.py").read_text(
+        encoding="utf-8"
+    )
+    opener = source[source.index("def open_edit_recipe_wizard") : source.index("def _recipe_saved_from_wizard")]
+
+    assert "QMessageBox" not in opener, (
+        "editing a recipe must not put a dialog in front of the wizard's own question"
+    )
+    assert 'initial_reference_action="choose"' in opener, (
+        "the wizard's reference step must be left to ask"
+    )

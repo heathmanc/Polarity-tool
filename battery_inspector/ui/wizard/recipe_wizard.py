@@ -91,6 +91,9 @@ class WizardPage(QWidget):
 
 
 class ReferenceCapturePage(WizardPage):
+    CAPTURE_LABEL = "CAPTURE NEW REFERENCE"
+    RETAKE_LABEL = "RETAKE"
+
     """Capture, review, retake, and explicitly accept a reference frame."""
 
     def __init__(
@@ -143,15 +146,14 @@ class ReferenceCapturePage(WizardPage):
         self.details.setStyleSheet("font-family: Consolas, monospace; font-size: 13px;")
         side_layout.addWidget(self.details)
 
-        self.capture_button = QPushButton("CAPTURE NEW REFERENCE")
+        # One button, because there is one action: acquire a fresh frame. It
+        # was two -- CAPTURE NEW REFERENCE and RETAKE -- wired to the same slot
+        # and both visible once a capture existed, which reads as a choice that
+        # is not there. The label says which of the two situations you are in.
+        self.capture_button = QPushButton(self.CAPTURE_LABEL)
         self.capture_button.setObjectName("PrimaryButton")
         self.capture_button.clicked.connect(self.capture_new)
         side_layout.addWidget(self.capture_button)
-
-        self.retake_button = QPushButton("RETAKE")
-        self.retake_button.clicked.connect(self.capture_new)
-        self.retake_button.setVisible(False)
-        side_layout.addWidget(self.retake_button)
 
         self.use_button = QPushButton("USE THIS IMAGE")
         self.use_button.setObjectName("PrimaryButton")
@@ -197,7 +199,10 @@ class ReferenceCapturePage(WizardPage):
         self.keep_button.setVisible(self.source_recipe is not None)
         self.keep_button.setEnabled(existing_ok and not self._busy)
         self.capture_button.setEnabled(not self._busy)
-        self.retake_button.setEnabled(not self._busy)
+        self.capture_button.setText(
+            self.RETAKE_LABEL if self.pending_reference is not None else self.CAPTURE_LABEL
+        )
+        self.use_button.setVisible(self.pending_reference is not None)
         self.use_button.setEnabled(
             not self._busy
             and (self.pending_reference is None or self.pending_reference.acceptable_for_recipe)
@@ -262,8 +267,6 @@ class ReferenceCapturePage(WizardPage):
             return
         self.pending_reference = payload
         self.data.clear_reference_acceptance()
-        self.retake_button.setVisible(True)
-        self.use_button.setVisible(True)
         self.prepare()
 
     def _capture_failed(self, message: str) -> None:
@@ -271,7 +274,6 @@ class ReferenceCapturePage(WizardPage):
         self._set_status("REFERENCE CAPTURE FAILED", BAD)
         self._set_message(message, BAD)
         self.capture_button.setEnabled(True)
-        self.retake_button.setEnabled(True)
 
     def _capture_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -303,8 +305,6 @@ class ReferenceCapturePage(WizardPage):
             return
         self.pending_reference = None
         self.data.set_reference(reference, changed=False)
-        self.use_button.setVisible(False)
-        self.retake_button.setVisible(False)
         self.prepare()
 
     def _show_reference_details(self, reference: ReferenceCapture) -> None:
