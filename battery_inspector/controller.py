@@ -1464,6 +1464,19 @@ class AppController(QObject):
             return (int(raw) if raw is not None else 0), ""
         return None, str(state.get("recipe_name", "") or "").strip()
 
+    def _plc_names_the_product(self) -> bool:
+        """Is the PLC selector what decides the recipe on this station?
+
+        A station setting, never inferred from the value read. Inferring it was
+        a hazard: a selector tag that read blank -- a comm fault, a renamed
+        tag, a program that does not write it yet -- looked identical to "no
+        selector configured", and the station fell back to grading the part
+        against whatever recipe was selected at the HMI. That is the silent
+        substitution the whole refusal path exists to prevent.
+        """
+
+        return self.config.plc_recipe_source == "plc"
+
     def _plc_selector_is_configured(self) -> bool:
         number, name = self._requested_selector()
         return bool((number or 0) > 0 or name)
@@ -1481,12 +1494,16 @@ class AppController(QObject):
             # against the recipe a technician selected at the HMI.
             return self.active_recipe
 
+        if not self._plc_names_the_product():
+            # Station selection is this station's configured recipe source, so
+            # a PLC trigger grades against it exactly as a manual one does.
+            return self.active_recipe
+
         number, name = self._requested_selector()
         if not self._plc_selector_is_configured():
-            # The controller is not naming a product. Fall back to the
-            # station's own selection so a bench PLC without a selector tag
-            # still works exactly as it did.
-            return self.active_recipe
+            # The selector names nothing. Refuse -- there is no fallback in
+            # this mode, deliberately.
+            return None
 
         return self.repository.resolve_production_recipe(
             recipe_number=number,
@@ -2530,13 +2547,24 @@ class AppController(QObject):
         # The controller names the product; the station resolves it. There is no
         # station-selected recipe for the request to disagree with any more, so
         # the only question is whether this station can run what was asked.
-        if self.resolve_recipe_for_trigger("PLC") is None and self._plc_selector_is_configured():
+        if self._plc_names_the_product() and self.resolve_recipe_for_trigger("PLC") is None:
             unavailable = f"{selector}:{requested_display}"
+            if not self._plc_selector_is_configured():
+                message = (
+                    f"PLC selector tag {self.config.tags.recipe_name} named no "
+                    "product, so no part can be graded. Check that the "
+                    "controller writes the tag, or set the station recipe "
+                    "source to the station selection"
+                )
+            else:
+                message = (
+                    f"PLC requested recipe {requested_display}, which this station "
+                    "cannot run: no validated revision exists for it"
+                )
             if unavailable != self._last_plc_recipe_mismatch:
                 self._add_event(
                     "PLC",
-                    f"PLC requested recipe {requested_display}, which this station "
-                    "cannot run: no validated revision exists for it",
+                    message,
                     details={"selector": selector, "requested": requested_display},
                 )
                 self._last_plc_recipe_mismatch = unavailable

@@ -872,11 +872,17 @@ class BaslerCameraService(CameraService):
             if not _set_numeric_node(gamma_node, settings.gamma, pylon, integer=False):
                 raise CameraError("Gamma could not be written to the connected camera")
 
+        # A frame-rate cap on a triggered camera throttles how fast triggers are
+        # accepted, which would silently add latency to a cycle -- or make
+        # WaitForFrameTriggerReady time out -- for a setting that describes
+        # free-run cadence and nothing else. Triggered acquisition always runs
+        # with the cap off, whatever the profile carries.
+        limit_frame_rate = settings.frame_rate_enabled and settings.trigger_mode != "On"
         frame_rate_enable = _first_node(camera, "AcquisitionFrameRateEnable")
         if _node_writable(frame_rate_enable, pylon):
-            if not _set_bool_node(frame_rate_enable, settings.frame_rate_enabled, pylon):
+            if not _set_bool_node(frame_rate_enable, limit_frame_rate, pylon):
                 raise CameraError("Frame-rate enable could not be written to the connected camera")
-        if settings.frame_rate_enabled:
+        if limit_frame_rate:
             frame_rate = _first_node(camera, "AcquisitionFrameRate", "AcquisitionFrameRateAbs")
             if not _set_numeric_node(frame_rate, settings.frame_rate_fps, pylon, integer=False):
                 raise CameraError("Requested frame rate could not be written to the connected camera")

@@ -394,10 +394,32 @@ def test_basler_profile_writes_custom_roi_exposure_gain_and_trigger() -> None:
     assert camera.OffsetY.Value == 12
     assert camera.ExposureTime.Value == 8123.0
     assert camera.Gain.Value == 2.5
-    assert camera.AcquisitionFrameRateEnable.Value is True
-    assert camera.AcquisitionFrameRate.Value == 12.3
+    # A frame-rate cap throttles how fast a triggered camera accepts triggers,
+    # so triggered acquisition always runs with the cap off, whatever the
+    # profile carries. See _apply_settings.
+    assert camera.AcquisitionFrameRateEnable.Value is False
     assert camera.TriggerMode.Value == "On"
     assert camera.TriggerSource.Value == "Line1"
+
+
+def test_a_free_running_profile_still_writes_the_frame_rate_cap() -> None:
+    from battery_inspector.services.camera import BaslerCameraService
+
+    camera = _FakeCameraNodes()
+    service = BaslerCameraService()
+    service._camera = camera  # type: ignore[attr-defined]
+    service._pylon = _FakePylon()  # type: ignore[attr-defined]
+
+    service._apply_settings_locked(  # type: ignore[attr-defined]
+        CameraConfig(
+            frame_rate_enabled=True,
+            frame_rate_fps=12.34,
+            trigger_mode="Off",
+        )
+    )
+
+    assert camera.AcquisitionFrameRateEnable.Value is True
+    assert camera.AcquisitionFrameRate.Value == 12.3
 
 
 def test_camera_default_resolution_preserves_existing_acquisition_roi() -> None:

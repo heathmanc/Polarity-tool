@@ -165,6 +165,42 @@ def report_classifier(controller: AppController) -> list[str]:
     return problems
 
 
+def report_recipe_selection(controller: AppController) -> list[str]:
+    """What the PLC can name, and whether any selector value is ambiguous."""
+
+    problems: list[str] = []
+    source = controller.config.plc_recipe_source
+    print("RECIPE SELECTION")
+    if source == "plc":
+        print(f"  Source           : PLC selector tag {controller.config.tags.recipe_name}")
+        print(f"  Selector value   : recipe {controller.config.plc_recipe_selector}")
+        runnable = controller.repository.production_recipe_count()
+        print(f"  Runnable products: {runnable}")
+        if runnable == 0:
+            problems.append(
+                "No recipe has a validated revision, so every PLC trigger will be "
+                "refused and Ready stays false."
+            )
+    else:
+        print("  Source           : station selection (the Recipes page)")
+        recipe = controller.active_recipe
+        print(f"  Selected recipe  : {recipe.name if recipe else 'none'}")
+        if recipe is None:
+            problems.append(
+                "The recipe source is the station selection and nothing is selected."
+            )
+
+    duplicates = controller.repository.duplicate_identifiers()
+    for finding in duplicates:
+        problems.append(
+            f"{finding}. A selector value must name exactly one recipe; while it "
+            "names two, which one grades the part is arbitrary."
+        )
+    print(f"  Ambiguous values : {len(duplicates)}")
+    print()
+    return problems
+
+
 def report_readiness(controller: AppController) -> list[str]:
     readiness = controller.inspection_readiness()
     print("PIPELINE READINESS")
@@ -243,6 +279,7 @@ def main() -> int:
         problems += report_acquisition(controller)
         problems += report_recipe(controller)
         problems += report_classifier(controller)
+        problems += report_recipe_selection(controller)
         problems += report_readiness(controller)
         problems += report_history(controller)
 

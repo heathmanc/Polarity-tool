@@ -42,13 +42,24 @@ def test_recipe_selector_type_round_trips(tmp_path) -> None:
     assert AppConfig.load(path).plc_recipe_selector == "number"
 
 
-def test_camera_trigger_profile_is_normalized_to_plc_requested_free_run() -> None:
+def test_only_software_triggering_is_ever_configured() -> None:
+    """The acquisition mode is a station choice; the trigger source is not.
+
+    A hardware trigger source would take the decision of when to expose away
+    from the station, and the fresh-frame-per-cycle guarantee lives in the
+    station making that decision. It is normalized away whatever a profile or
+    an older configuration file asks for.
+    """
+
     from battery_inspector.config import CameraConfig
 
-    normalized = CameraConfig(trigger_mode="On", trigger_source="Line1").normalized()
+    triggered = CameraConfig(trigger_mode="On", trigger_source="Line1").normalized()
+    free_running = CameraConfig(trigger_mode="Off", trigger_source="Line1").normalized()
 
-    assert normalized.trigger_mode == "Off"
-    assert normalized.trigger_source == "Software"
+    assert triggered.trigger_mode == "On"
+    assert free_running.trigger_mode == "Off"
+    assert triggered.trigger_source == "Software"
+    assert free_running.trigger_source == "Software"
 
 
 def test_ml_configuration_defaults_to_standard_model_package() -> None:

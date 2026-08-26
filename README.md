@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.28.0** source
+This README is the current project and handoff guide for the **v0.29.0** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.28.0` |
-| Release tag | `v0.28.0` |
+| Application version | `0.29.0` |
+| Release tag | `v0.29.0` |
 | Tagged commit | `ddd9fe378f04714656b229da219fd42d18599407` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -82,6 +82,12 @@ Recorded project status at this handoff point:
   the station can run headless. It also publishes station readiness to the PLC
   and separates Logout from Exit. **Controls engineers must re-read the ICD.**
   See `docs/RELEASE_NOTES_v0.28.0.md`.
+- v0.29.0 makes the recipe source a station setting instead of something
+  inferred from the tag value, so a blank or faulted selector is refused rather
+  than silently falling back to the HMI selection; adds triggered-snapshot
+  acquisition; and enforces that one recipe number or name names exactly one
+  recipe. **Set Recipe source before the first run after upgrading.** See
+  `docs/RELEASE_NOTES_v0.29.0.md`.
 - v0.26.0 adds a live camera preview on the CAMERA IMAGE tab and exposes white
   balance, black level, and gamma. White balance in particular is an inspection
   setting: the silver/brass check compares colour against the recipe reference,
@@ -228,6 +234,16 @@ IDLE -> ACQUIRING -> LOCATING -> INSPECTING -> SAVING
 One cycle owns one newly acquired `CameraFrame`. If fresh acquisition fails, an
 older displayed image is never substituted for the requested product.
 
+A new station acquires that frame as a **triggered snapshot**: the station
+executes a software trigger and the camera exposes on demand, so the frame
+belongs to the cycle that asked for it. **Free run** remains selectable under
+Settings -> CAMERA I/O -> Acquisition, and is what every station commissioned
+before v0.29.0 keeps until a technician changes it; there the camera exposes
+continuously, and a cycle drains the queue and discards one frame boundary
+before grading the next completed exposure. Frame-rate limiting describes
+free-run cadence only and is disabled on the camera whenever the station is
+triggering.
+
 ### Reference registration
 
 The accepted recipe reference is the coordinate authority. Pole Position:
@@ -349,7 +365,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.28.0-Setup-x64.exe
+Pole-Position-v0.29.0-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -393,10 +409,16 @@ C:\ProgramData\Pole Position\runtime\models\training\yolo11n-cls.pt
    commissioning but can visibly fall back to the demo image if hardware is
    unavailable.
 6. Apply and test exposure, gain, pixel format, acquisition ROI, timeout, and
-   frame-rate settings. Confirm the full returned resolution.
+   acquisition mode. Confirm the full returned resolution. Leave Acquisition on
+   **Triggered snapshot** unless the camera cannot do a FrameStart trigger;
+   frame rate applies to free run only.
 7. Select **Settings > PLC Mode** and choose either explicit Simulation or
    pycomm3. For pycomm3, enter the Logix route and apply/test the connection.
-8. Configure every PLC tag and select recipe-by-name or recipe-by-number.
+8. Configure every PLC tag. Set **Recipe source**: with **PLC selector tag**,
+   also choose recipe-by-name or recipe-by-number, and confirm the program
+   writes that tag before the first trigger -- a tag that names nothing is
+   refused, not substituted. Choose **Station selection** only for a bench, a
+   simulation, or a single-product station whose program has no selector tag.
 9. Install or train the current four-class ONNX/JSON model package. Verify model
    ID, version, SHA-256, classes, crop contract, and runtime state.
 10. Create or restore the required recipes. Verify number, name, reference,
@@ -1101,9 +1123,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.28.0-Setup-x64.exe
-dist\windows\Pole-Position-v0.28.0-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.28.0-requirements-lock.txt
+dist\windows\Pole-Position-v0.29.0-Setup-x64.exe
+dist\windows\Pole-Position-v0.29.0-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.29.0-requirements-lock.txt
 ```
 
 The build:
@@ -1258,10 +1280,18 @@ them:
 12. PLC mode never falls back to Simulation automatically.
 13. Recipe number remains stable across revisions and can be selected through
     an integer Logix tag.
-13a. The PLC selector decides the recipe on every trigger. The station resolves
-    it to the newest validated revision of the named recipe and grades against
-    that; an unresolvable selection is refused, never substituted, and drops
-    Ready. No production path requires an operator to select a recipe.
+13a. The PLC selector decides the recipe on every trigger when the station's
+    recipe source is the PLC. The station resolves it to the newest validated
+    revision of the named recipe and grades against that; an unresolvable or
+    empty selection is refused, never substituted, and drops Ready. Where a
+    trigger's recipe comes from is always a station setting, never inferred
+    from the value read.
+13b. A recipe number and a recipe name each identify exactly one recipe. Both
+    are how the PLC names a product, so a duplicate is refused at save and
+    reported by the station diagnostic.
+13c. Only the station decides when the camera exposes. Hardware triggering is
+    normalized away; acquisition is either a station-issued software trigger or
+    free run sampled by the station.
 14. Bypass never manufactures PASS and must be owned by PLC interlock logic.
 15. Camera selection remains first available and serial-independent.
 16. Production model weights remain separate from the Windows installer.
@@ -1422,6 +1452,7 @@ this README, current source, or current subsystem documents.
 | v0.26.0 | Live camera preview; white balance, black level and gamma exposed |
 | v0.27.0 | Validation counts a different confirmed part or a moved one; validation sample count is a station setting; ML Training and Settings behind a passcode; wheel cannot change values |
 | v0.28.0 | PLC selector decides the recipe every trigger; unresolvable selection refused and drops Ready; optional PLC station-readiness tag; Logout separate from Exit |
+| v0.29.0 | Recipe source is a station setting and a blank selector is refused, not defaulted; triggered-snapshot acquisition; one selector value names exactly one recipe |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1457,7 +1488,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.28.0 installer, `.sha256`, and requirements lock
+- [ ] v0.29.0 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

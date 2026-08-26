@@ -495,8 +495,8 @@ footer {
   <h1>Pole Position</h1>
   <p class="standfirst">How to run this station, wire it to the PLC, teach it a new battery, and train the model that reads the terminal stamps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.28.0</dd></div>
-    <div><dt>Document</dt><dd>Rev B</dd></div>
+    <div><dt>Applies to</dt><dd>v0.29.0</dd></div>
+    <div><dt>Document</dt><dd>Rev C</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Replaces</dt><dd>Nothing</dd></div>
   </dl>
@@ -855,6 +855,8 @@ END_IF;
   </ul>
   <p>The requested name or number decides the recipe on every trigger. The station finds the newest revision of that recipe whose validation is finished and grades the part against it. Nobody selects a recipe at the HMI for production, and the station can run with no operator at all.</p>
   <p>If the requested recipe cannot be found &mdash; unknown name or number, or every revision of it is still a draft or retired &mdash; the station refuses the trigger. It never grades the part against a different recipe. The refusal is logged, the <code>Ready</code> tag goes false while the condition lasts, and no result is published.</p>
+  <p>The same is true of a selector tag that names nothing at all: a blank string, a zero, or a tag the program never writes. The station refuses, because a blank tag looks the same as a broken one and guessing would put a part through the wrong recipe.</p>
+  <p>A station whose PLC program has no selector tag is set up for that instead. Under <strong>Settings &rarr; PLC TAGS</strong>, <strong>Recipe source</strong> is set to <em>Station selection</em>, and PLC triggers then use the recipe chosen on the Recipes page. Use that for a line that runs one product; use the selector tag for any line that runs more than one.</p>
 
   <h3 id="plc-bypass">Bypass logic</h3>
   <p>Bypass is a request from the station to the controller, written to <code>BatteryVision.Bypass</code> and read back to confirm. The station reads the tag continuously, so a PLC-side change appears in the HMI.</p>
@@ -1176,7 +1178,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position station handbook, Rev B, for application v0.28.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
+  <p><strong>Pole Position station handbook, Rev C, for application v0.29.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
   <p>This document is an unapproved draft. It does not replace your site's approved user manual, and it is not a controlled record until your quality process makes it one. Where this handbook and the station's own behaviour disagree, the station is right and this document needs correcting.</p>
 </footer>
 

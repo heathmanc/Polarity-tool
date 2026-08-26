@@ -179,9 +179,27 @@ so a misconfigured line is visible as a state and not only as a timeout. The PLC
 must keep the product inhibited and apply its site-standard timeout/fault logic
 when Busy/Complete does not follow a request.
 
-When no selector tag is configured at all, and for a manual trigger from the
-HMI, the station falls back to the recipe selected on the Recipes page. That is
-the simulation and bench path.
+### Recipe source is a station setting, not an inference
+
+**Settings → PLC TAGS → Recipe source** decides where a PLC-triggered cycle gets
+its recipe:
+
+| Recipe source | A PLC trigger grades against | The selector tag |
+| --- | --- | --- |
+| **PLC selector tag** (default) | the newest validated revision of the product the tag names | decides every trigger |
+| **Station selection** | the recipe selected on the Recipes page | not read for product identity |
+
+Under **PLC selector tag** there is no fallback. A tag that names nothing —
+blank STRING, zero integer, a tag the program does not write yet, a renamed tag,
+a comm fault — is refused exactly like an unknown product: no cycle, no
+substitution, Ready low, one logged event. Earlier builds fell back to the HMI
+selection in that case, which meant a blank tag could put a part through the
+wrong recipe without anything on the line saying so.
+
+Use **Station selection** for the bench, for simulation, and for a
+single-product station whose PLC program carries no selector tag. It is a
+deliberate configuration, not a degraded mode; a manual inspection from the HMI
+always grades against it regardless of this setting.
 
 ## Bypass contract
 

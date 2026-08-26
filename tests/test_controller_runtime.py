@@ -200,6 +200,10 @@ def test_counter_reset_clears_the_session_without_deleting_inspections(controlle
 
 
 def test_plc_trigger_edge_starts_exactly_one_inspection(controller, monkeypatch) -> None:
+    # About edge latching, not product identity: this station's recipe source
+    # is its own selection, so the trigger has something to grade against
+    # without the state carrying a selector value.
+    controller.config.plc_recipe_source = "station"
     started: list[str] = []
     monkeypatch.setattr(
         controller, "run_inspection", lambda source="MANUAL": started.append(source)
@@ -214,6 +218,7 @@ def test_plc_trigger_edge_starts_exactly_one_inspection(controller, monkeypatch)
 
 
 def test_plc_trigger_rearms_after_the_tag_drops(controller, monkeypatch) -> None:
+    controller.config.plc_recipe_source = "station"
     started: list[str] = []
     monkeypatch.setattr(
         controller, "run_inspection", lambda source="MANUAL": started.append(source)

@@ -19,6 +19,7 @@ import pytest
 from battery_inspector.config import AppConfig, PlcTagMap
 from battery_inspector.controller import AppController
 from battery_inspector.data import RecipeRepository
+from battery_inspector.data.repository import DuplicateRecipeIdentifier
 from battery_inspector.models import (
     Marking,
     NormalizedRect,
@@ -59,7 +60,22 @@ def _terminals() -> list[TerminalRecipe]:
     ]
 
 
-def _recipe(number: int, name: str, *, validated: bool, revision: int = 1) -> Recipe:
+def _recipe(
+    number: int,
+    name: str,
+    *,
+    validated: bool,
+    revision: int = 1,
+    recipe_id: str = "",
+) -> Recipe:
+    """One revision of a recipe.
+
+    Revisions of the same recipe share a ``recipe_id`` -- that is what makes
+    them revisions rather than two recipes claiming one selector value, which
+    the repository refuses. Tests that build a revision history pass the id of
+    the first revision.
+    """
+
     recipe = Recipe.new(
         name=name,
         recipe_number=number,
@@ -69,6 +85,8 @@ def _recipe(number: int, name: str, *, validated: bool, revision: int = 1) -> Re
         battery_roi=NormalizedRect(0.0, 0.0, 1.0, 1.0),
         terminals=_terminals(),
     )
+    if recipe_id:
+        recipe.recipe_id = recipe_id
     recipe.revision = revision
     if validated:
         mark_validated(recipe)
@@ -116,8 +134,9 @@ def test_an_unknown_number_resolves_to_nothing(repository) -> None:
 
 
 def test_the_newest_validated_revision_wins(repository) -> None:
-    repository.save_recipe(_recipe(7, "GROUP31", validated=True, revision=1), username="t")
-    newer = _recipe(7, "GROUP31", validated=True, revision=2)
+    first = _recipe(7, "GROUP31", validated=True, revision=1)
+    repository.save_recipe(first, username="t")
+    newer = _recipe(7, "GROUP31", validated=True, revision=2, recipe_id=first.recipe_id)
     newer.part_number = "PN-NEWER"
     repository.save_recipe(newer, username="t")
 
@@ -131,8 +150,12 @@ def test_the_newest_validated_revision_wins(repository) -> None:
 def test_a_newer_unvalidated_revision_does_not_displace_a_validated_one(repository) -> None:
     """A draft in progress must never take a validated revision out of service."""
 
-    repository.save_recipe(_recipe(7, "GROUP31", validated=True, revision=1), username="t")
-    repository.save_recipe(_recipe(7, "GROUP31", validated=False, revision=2), username="t")
+    first = _recipe(7, "GROUP31", validated=True, revision=1)
+    repository.save_recipe(first, username="t")
+    repository.save_recipe(
+        _recipe(7, "GROUP31", validated=False, revision=2, recipe_id=first.recipe_id),
+        username="t",
+    )
 
     resolved = repository.resolve_production_recipe(recipe_number=7)
 
@@ -141,9 +164,10 @@ def test_a_newer_unvalidated_revision_does_not_displace_a_validated_one(reposito
 
 
 def test_a_retired_revision_is_skipped(repository) -> None:
-    retired = _recipe(7, "GROUP31", validated=True, revision=2)
+    first = _recipe(7, "GROUP31", validated=True, revision=1)
+    retired = _recipe(7, "GROUP31", validated=True, revision=2, recipe_id=first.recipe_id)
     retired.status = RecipeStatus.RETIRED
-    repository.save_recipe(_recipe(7, "GROUP31", validated=True, revision=1), username="t")
+    repository.save_recipe(first, username="t")
     repository.save_recipe(retired, username="t")
 
     resolved = repository.resolve_production_recipe(recipe_number=7)
@@ -260,11 +284,121 @@ def test_a_manual_trigger_still_uses_the_station_selection(qapp, station) -> Non
     assert station.resolve_recipe_for_trigger("MANUAL") is selected
 
 
-def test_no_selector_configured_falls_back_to_the_station_selection(qapp, station) -> None:
-    """A bench PLC with no selector tag must behave as it always did."""
+def test_a_selector_that_names_nothing_is_refused_not_substituted(qapp, station) -> None:
+    """The hazard this setting exists to remove.
 
+    A blank read is indistinguishable from a comm fault, a renamed tag, or a
+    program that does not write the selector yet. Grading the part against
+    whatever the HMI has selected would be a silent substitution, so a station
+    whose recipe source is the PLC refuses instead.
+    """
+
+    assert station.config.plc_recipe_source == "plc"
+    station.plc.recipe_selector = "number"
+    station.plc.recipe_number = 0
+    station._handle_plc_state(station.plc.read_cycle_state())
+
+    assert station.resolve_recipe_for_trigger("PLC") is None
+    assert station.run_inspection("PLC") is False
+    assert station.station_ready_for_trigger() is False
+
+
+def test_the_station_selection_is_a_configured_recipe_source(qapp, station) -> None:
+    """A single-product line whose program carries no selector tag."""
+
+    station.config.plc_recipe_source = "station"
     station.plc.recipe_selector = "number"
     station.plc.recipe_number = 0
     station._handle_plc_state(station.plc.read_cycle_state())
 
     assert station.resolve_recipe_for_trigger("PLC") is station.active_recipe
+    assert station.station_ready_for_trigger() is True
+
+
+def test_the_selector_is_ignored_entirely_under_station_selection(qapp, station) -> None:
+    """Not just when it is blank: a wrong value must not stop a station.
+
+    A program that still writes a stale selector tag, or writes one for some
+    other consumer, must not be able to inhibit a station that has been told
+    its recipe comes from the HMI.
+    """
+
+    station.config.plc_recipe_source = "station"
+    station.plc.recipe_selector = "number"
+    station.plc.recipe_number = 4242
+    station._handle_plc_state(station.plc.read_cycle_state())
+
+    assert station.resolve_recipe_for_trigger("PLC") is station.active_recipe
+    assert station.station_ready_for_trigger() is True
+
+
+# --- one selector value, one product ---------------------------------------
+
+
+def test_a_second_recipe_cannot_claim_the_same_number(repository) -> None:
+    repository.save_recipe(_recipe(7, "GROUP31", validated=True), username="t")
+
+    with pytest.raises(DuplicateRecipeIdentifier):
+        repository.save_recipe(_recipe(7, "OTHER_PRODUCT", validated=False), username="t")
+
+
+def test_a_second_recipe_cannot_claim_the_same_name(repository) -> None:
+    repository.save_recipe(_recipe(7, "GROUP31", validated=True), username="t")
+
+    with pytest.raises(DuplicateRecipeIdentifier):
+        repository.save_recipe(_recipe(8, "GROUP31", validated=False), username="t")
+
+
+def test_a_name_that_differs_only_by_case_is_the_same_name(repository) -> None:
+    """Uniqueness and resolution have to agree, or one of them is a trap."""
+
+    repository.save_recipe(_recipe(7, "GROUP31", validated=True), username="t")
+
+    with pytest.raises(DuplicateRecipeIdentifier):
+        repository.save_recipe(_recipe(8, "group31", validated=False), username="t")
+
+
+def test_the_plc_may_name_a_recipe_in_any_case(repository) -> None:
+    repository.save_recipe(_recipe(7, "GROUP31", validated=True), username="t")
+
+    assert repository.resolve_production_recipe(recipe_name="group31") is not None
+
+
+def test_a_new_revision_keeps_its_own_number_and_name(repository) -> None:
+    """The rule must not refuse the ordinary case it exists to protect."""
+
+    first = _recipe(7, "GROUP31", validated=True, revision=1)
+    repository.save_recipe(first, username="t")
+
+    second = _recipe(7, "GROUP31", validated=True, revision=2, recipe_id=first.recipe_id)
+    repository.save_recipe(second, username="t")
+
+    assert repository.resolve_production_recipe(recipe_number=7).revision == 2
+    assert repository.duplicate_identifiers() == []
+
+
+def test_duplicates_already_on_a_station_are_reported(repository) -> None:
+    """Refusing new duplicates does nothing for a station that already has one."""
+
+    repository.save_recipe(_recipe(7, "GROUP31", validated=True), username="t")
+    intruder = _recipe(7, "OTHER_PRODUCT", validated=False)
+    # Written past the guard the way a pre-rule release would have written it.
+    with repository._connection() as connection:  # noqa: SLF001
+        connection.execute(
+            "INSERT INTO recipes (recipe_id, recipe_number, name, part_number, "
+            "revision, status, payload_json, updated_at_utc) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                intruder.recipe_id,
+                intruder.recipe_number,
+                intruder.name,
+                intruder.part_number,
+                intruder.revision,
+                intruder.status.value,
+                "{}",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+
+    findings = repository.duplicate_identifiers()
+
+    assert any("number 7" in item for item in findings)

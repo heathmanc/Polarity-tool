@@ -12,6 +12,9 @@ from battery_inspector.maintenance_passcode import default_credentials
 CAMERA_BACKENDS = {"auto", "basler", "simulation"}
 PLC_BACKENDS = {"pycomm3", "simulation"}
 PLC_RECIPE_SELECTORS = {"name", "number"}
+# Where the recipe for a PLC-triggered cycle comes from. See
+# AppConfig.plc_recipe_source.
+PLC_RECIPE_SOURCES = {"plc", "station"}
 
 
 def _known_dataclass_values(cls: type, payload: dict[str, Any]) -> dict[str, Any]:
@@ -91,13 +94,27 @@ class CameraConfig:
     gamma_enabled: bool = False
     gamma: float = 1.0
 
+    # Free-run cadence. Irrelevant to a triggered station: an exposure happens
+    # because the station asked for one, not on a clock. It still governs a
+    # free-running camera, where it sets how long a cycle waits for a frame
+    # boundary, and the bandwidth and heat of a camera nobody is reading.
     frame_rate_enabled: bool = False
     frame_rate_fps: float = 10.0
-    # Compatibility fields for older station profiles. Production inspection is
-    # requested only by the configured PLC Trigger tag (plus the explicit
-    # Overview manual action), so the camera remains free-running and is sampled
-    # on demand by the application.
-    trigger_mode: str = "Off"
+    # How a frame is acquired.
+    #
+    # "On"  -- triggered snapshot. The station executes a software trigger and
+    #          the camera exposes on demand, so the frame belongs to the cycle
+    #          that asked for it and cycle latency does not depend on a frame
+    #          rate. This is what a station inspecting a stopped part wants.
+    # "Off" -- free run. The camera exposes continuously; a cycle drains the
+    #          queue, discards one boundary frame, and grades the next
+    #          completed exposure. Every station built before v0.29.0 ran this
+    #          way and keeps running this way until a technician changes it.
+    #
+    # Only software triggering is supported: a hardware trigger would take the
+    # decision of when to expose away from the station, which is where the
+    # fresh-frame-per-cycle guarantee lives.
+    trigger_mode: str = "On"
     trigger_source: str = "Software"
 
     @property
@@ -159,7 +176,7 @@ class CameraConfig:
             gamma=max(0.01, float(self.gamma)),
             frame_rate_enabled=bool(self.frame_rate_enabled),
             frame_rate_fps=max(0.1, float(self.frame_rate_fps)),
-            trigger_mode="Off",
+            trigger_mode="On" if self.trigger_mode != "Off" else "Off",
             trigger_source="Software",
         )
 
@@ -219,6 +236,19 @@ class AppConfig:
     plc_poll_ms: int = 250
     plc_heartbeat_ms: int = 1000
     plc_recipe_selector: str = "name"  # name (Logix STRING) | number (integer)
+    # Which recipe a PLC-triggered cycle grades against:
+    #
+    # "plc"     -- the selector tag names the product on every trigger. A read
+    #              that names nothing, or names a product with no validated
+    #              revision, is refused: no cycle, no substitution, Ready low.
+    #              There is deliberately no fallback, because a fallback turns
+    #              a blank tag into a part graded against the wrong recipe.
+    # "station" -- PLC triggers grade against the recipe selected on the
+    #              Recipes page, and the selector tag is not read for product
+    #              identity. This is the bench and simulation path, and a
+    #              legitimate production choice for a single-product station
+    #              whose program does not carry a selector tag.
+    plc_recipe_source: str = "plc"
     failure_retention_days: int = 30
     failure_retention_max_gb: float = 5.0
     operator_name: str = "Technician"
@@ -312,6 +342,12 @@ class AppConfig:
         camera_raw.pop("camera_serial", None)
         camera_raw["selection_mode"] = "first_available"
         camera_raw["device_id"] = ""
+        # Triggered acquisition is the default for a new station, not a change
+        # applied to a commissioned one. A file written by any earlier release
+        # carries trigger_mode explicitly; one that predates the field is from
+        # a build that only ever ran free-running, so it keeps free run until a
+        # technician changes it on the camera page.
+        camera_raw.setdefault("trigger_mode", "Off")
         camera = CameraConfig(**_known_dataclass_values(CameraConfig, camera_raw)).normalized()
 
         ml_raw = raw.pop("ml", {})
@@ -364,6 +400,9 @@ class AppConfig:
             if self.plc_recipe_selector in PLC_RECIPE_SELECTORS
             else "name"
         )
+        plc_recipe_source = (
+            self.plc_recipe_source if self.plc_recipe_source in PLC_RECIPE_SOURCES else "plc"
+        )
         return AppConfig(
             camera_backend=camera_backend,
             plc_backend=plc_backend,
@@ -375,6 +414,7 @@ class AppConfig:
             plc_poll_ms=max(50, int(self.plc_poll_ms)),
             plc_heartbeat_ms=max(250, int(self.plc_heartbeat_ms)),
             plc_recipe_selector=plc_recipe_selector,
+            plc_recipe_source=plc_recipe_source,
             # Zero disables that individual retention limit. Production PASS
             # images/records are never retained regardless of these settings.
             failure_retention_days=max(0, min(3650, int(self.failure_retention_days))),

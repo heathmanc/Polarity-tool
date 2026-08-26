@@ -23,6 +23,16 @@ from battery_inspector.models import (
 )
 
 
+class DuplicateRecipeIdentifier(ValueError):
+    """A recipe number or name is already in use by a different recipe.
+
+    Both are how the PLC names a product. If two recipes share one, the
+    selector no longer identifies a single product and resolution silently
+    picks whichever revision sorts highest -- so this is refused at the point
+    it would be created, not discovered on the line.
+    """
+
+
 class RecipeRepository:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
@@ -154,6 +164,68 @@ class RecipeRepository:
                     ),
                 )
 
+    def _assert_identifiers_are_free(self, recipe: Recipe) -> None:
+        """Refuse a number or name that already belongs to another recipe.
+
+        Revisions of the same recipe share both, which is the point: the PLC
+        keeps naming one product as it is revised. Only a *different*
+        ``recipe_id`` is a conflict.
+
+        This checks rather than relying on a UNIQUE index, because an existing
+        station may already carry a duplicate created before this rule. Those
+        stay loadable and are reported by ``duplicate_identifiers()``; what is
+        refused is making a new one.
+        """
+
+        name = recipe.name.strip()
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT name FROM recipes WHERE recipe_number = ? AND recipe_id <> ? LIMIT 1",
+                (int(recipe.recipe_number), recipe.recipe_id),
+            ).fetchone()
+            if row is not None:
+                raise DuplicateRecipeIdentifier(
+                    f"Recipe number {recipe.recipe_number} is already used by "
+                    f"{row['name']}. The PLC selects a product by this number, "
+                    "so it has to name exactly one recipe."
+                )
+            row = connection.execute(
+                "SELECT recipe_number FROM recipes WHERE name = ? COLLATE NOCASE "
+                "AND recipe_id <> ? LIMIT 1",
+                (name, recipe.recipe_id),
+            ).fetchone()
+            if row is not None:
+                raise DuplicateRecipeIdentifier(
+                    f"Recipe name {name} is already used by recipe number "
+                    f"{row['recipe_number']}. The PLC can select a product by "
+                    "name, so it has to name exactly one recipe."
+                )
+
+    def duplicate_identifiers(self) -> list[str]:
+        """Numbers and names that more than one recipe claims.
+
+        Empty on a station that was built under the uniqueness rule. Non-empty
+        means the PLC selector is ambiguous for those products and resolution
+        will pick one arbitrarily; the duplicates must be resolved before the
+        station runs them.
+        """
+
+        findings: list[str] = []
+        with self._connection() as connection:
+            for column, label in (
+                ("recipe_number", "number"),
+                ("name COLLATE NOCASE", "name"),
+            ):
+                rows = connection.execute(
+                    f"SELECT {column} AS value, COUNT(DISTINCT recipe_id) AS claimants "  # noqa: S608
+                    f"FROM recipes GROUP BY {column} HAVING claimants > 1"
+                ).fetchall()
+                findings.extend(
+                    f"Recipe {label} {row['value']} is claimed by {row['claimants']} recipes"
+                    for row in rows
+                )
+        return findings
+
     def save_recipe(self, recipe: Recipe, *, username: str, message: str = "Recipe saved") -> Recipe:
         if recipe.recipe_number <= 0:
             with self._connection() as connection:
@@ -171,6 +243,7 @@ class RecipeRepository:
                     recipe.recipe_number = max(
                         1, int(row["next_number"] if row else 1)
                     )
+        self._assert_identifiers_are_free(recipe)
         now = datetime.now(timezone.utc).isoformat()
         recipe.updated_by = username
         recipe.updated_at_utc = now
@@ -280,7 +353,12 @@ class RecipeRepository:
         if recipe_number is not None and int(recipe_number) > 0:
             column, value = "recipe_number", int(recipe_number)
         elif recipe_name.strip():
-            column, value = "name", recipe_name.strip()
+            # Case-insensitively, because uniqueness is enforced case-
+            # insensitively: no two recipes may differ only by case, so folding
+            # here cannot make the match ambiguous. It does stop a controller
+            # sending "group31_xhd" from being refused a recipe stored as
+            # "GROUP31_XHD".
+            column, value = "name COLLATE NOCASE", recipe_name.strip()
         else:
             return None
 

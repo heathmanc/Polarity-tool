@@ -647,6 +647,13 @@ class SettingsPage(QWidget):
         acq_title.setObjectName("PanelTitle")
         acq_layout.addWidget(acq_title)
         acq_form = QFormLayout()
+        self.acquisition_mode = QComboBox()
+        self.acquisition_mode.addItem("Triggered snapshot — one exposure per cycle", "On")
+        self.acquisition_mode.addItem("Free run — camera exposes continuously", "Off")
+        self._select_combo_data(
+            self.acquisition_mode,
+            self.controller.config.camera.trigger_mode,
+        )
         self.frame_rate_enabled = QCheckBox("Limit acquisition frame rate")
         self.frame_rate_enabled.setChecked(self.controller.config.camera.frame_rate_enabled)
         self.frame_rate = QDoubleSpinBox()
@@ -659,14 +666,12 @@ class SettingsPage(QWidget):
             f"PLC tag — {self.controller.config.tags.trigger}",
             "PLC_TAG",
         )
+        acq_form.addRow("Acquisition", self.acquisition_mode)
         acq_form.addRow("Frame-rate control", self.frame_rate_enabled)
         acq_form.addRow("Frame rate", self.frame_rate)
         acq_form.addRow("Production trigger", self.trigger_mode)
         acq_layout.addLayout(acq_form)
-        self.acquisition_range = QLabel(
-            "Production inspections start only from the configured PLC Trigger tag. "
-            "The Overview page provides the only manual inspection action."
-        )
+        self.acquisition_range = QLabel()
         self.acquisition_range.setWordWrap(True)
         self.acquisition_range.setProperty("muted", True)
         acq_layout.addWidget(self.acquisition_range)
@@ -715,6 +720,7 @@ class SettingsPage(QWidget):
         self.exposure_auto.currentIndexChanged.connect(self.update_auto_controls)
         self.gain_auto.currentIndexChanged.connect(self.update_auto_controls)
         self.frame_rate_enabled.toggled.connect(self.update_acquisition_controls)
+        self.acquisition_mode.currentIndexChanged.connect(self.update_acquisition_controls)
         self.update_resolution_controls()
         self.update_auto_controls()
         self.update_acquisition_controls()
@@ -861,6 +867,20 @@ class SettingsPage(QWidget):
         tag_layout.addWidget(tag_note)
 
         selector_form = QFormLayout()
+        self.plc_recipe_source = QComboBox()
+        self.plc_recipe_source.addItem(
+            "PLC selector tag — the PLC names the product every trigger",
+            "plc",
+        )
+        self.plc_recipe_source.addItem(
+            "Station selection — the recipe chosen on the Recipes page",
+            "station",
+        )
+        self._select_combo_data(
+            self.plc_recipe_source,
+            self.controller.config.plc_recipe_source,
+        )
+        selector_form.addRow("Recipe source", self.plc_recipe_source)
         self.plc_recipe_selector = QComboBox()
         self.plc_recipe_selector.addItem(
             "Recipe name — Logix STRING / word value",
@@ -875,6 +895,12 @@ class SettingsPage(QWidget):
             self.controller.config.plc_recipe_selector,
         )
         selector_form.addRow("Recipe selector value", self.plc_recipe_selector)
+        self.plc_recipe_source_note = QLabel()
+        self.plc_recipe_source_note.setWordWrap(True)
+        self.plc_recipe_source_note.setProperty("muted", True)
+        selector_form.addRow("", self.plc_recipe_source_note)
+        self.plc_recipe_source.currentIndexChanged.connect(self._update_recipe_source)
+        self._update_recipe_source()
         tag_layout.addLayout(selector_form)
 
         tag_columns = QHBoxLayout()
@@ -1127,6 +1153,7 @@ class SettingsPage(QWidget):
             self.camera_backend,
             self.plc_mode,
             self.plc_recipe_selector,
+            self.plc_recipe_source,
             self.fullscreen,
             self.operator,
             self.failure_retention_days,
@@ -1143,6 +1170,7 @@ class SettingsPage(QWidget):
             self.offset_y,
             self.pixel_format,
             self.camera_timeout,
+            self.acquisition_mode,
             self.frame_rate_enabled,
             self.frame_rate,
             self.plc_address,
@@ -1204,6 +1232,27 @@ class SettingsPage(QWidget):
     def _combo_value(combo: QComboBox) -> str:
         return str(combo.currentData() or combo.currentText())
 
+    def _update_recipe_source(self) -> None:
+        """Say what each choice means, and grey out what it makes irrelevant."""
+
+        plc_names_it = self._combo_value(self.plc_recipe_source) == "plc"
+        self.plc_recipe_selector.setEnabled(plc_names_it)
+        if plc_names_it:
+            self.plc_recipe_source_note.setText(
+                "The selector tag decides the recipe on every trigger. A tag that "
+                "names nothing, or names a product with no validated revision, is "
+                "refused: no cycle is run, no other recipe is substituted, and the "
+                "Ready tag goes false. Use this for any line that runs more than "
+                "one product, and for headless operation."
+            )
+        else:
+            self.plc_recipe_source_note.setText(
+                "PLC triggers grade against the recipe selected on the Recipes "
+                "page, and the selector tag is not read for product identity. Use "
+                "this on the bench, in simulation, and on a single-product station "
+                "whose PLC program carries no selector tag."
+            )
+
     def update_resolution_controls(self) -> None:
         custom = self._combo_value(self.resolution_mode) == "Custom"
         self.center_roi.setEnabled(custom)
@@ -1218,7 +1267,32 @@ class SettingsPage(QWidget):
         self.gain.setEnabled(self._combo_value(self.gain_auto) == "Off")
 
     def update_acquisition_controls(self) -> None:
-        self.frame_rate.setEnabled(self.frame_rate_enabled.isChecked())
+        """Frame rate is a free-run setting. Say so instead of implying otherwise."""
+
+        triggered = self._combo_value(self.acquisition_mode) == "On"
+        can_limit = not triggered and getattr(self, "_frame_rate_enable_available", True)
+        self.frame_rate_enabled.setEnabled(can_limit)
+        self.frame_rate.setEnabled(can_limit and self.frame_rate_enabled.isChecked())
+        detected = getattr(self, "_detected_acquisition", "")
+        if triggered:
+            self.acquisition_range.setText(
+                "The station executes a software trigger and the camera exposes on "
+                "demand, so every cycle grades an exposure taken for that cycle. "
+                "Frame rate does not apply: nothing is exposed until the station "
+                "asks. Production inspections start only from the configured PLC "
+                "Trigger tag; the Overview page provides the only manual action."
+            )
+        else:
+            self.acquisition_range.setText(
+                "The camera exposes continuously and a cycle discards one frame "
+                "boundary before grading the next completed exposure, so the frame "
+                "rate sets how long a cycle waits for its frame -- about two frame "
+                "periods at worst. Triggered snapshot avoids that wait entirely."
+            )
+        if detected:
+            self.acquisition_range.setText(
+                f"{self.acquisition_range.text()}\n\n{detected}"
+            )
 
     def _update_trigger_mode_label(self, *_args) -> None:
         tag = self.tag_edits["trigger"].text().strip() or "NOT CONFIGURED"
@@ -1232,7 +1306,8 @@ class SettingsPage(QWidget):
         self.plc_address.setEnabled(hardware)
         for edit in self.tag_edits.values():
             edit.setEnabled(hardware)
-        self.plc_recipe_selector.setEnabled(True)
+        self.plc_recipe_source.setEnabled(True)
+        self._update_recipe_source()
         if hardware:
             self.apply_plc_button.setText("APPLY & TEST PYCOMM3")
             self.plc_poll.setEnabled(True)
@@ -1430,13 +1505,13 @@ class SettingsPage(QWidget):
             self.frame_rate.setValue(
                 min(max(requested_rate, caps.frame_rate_hz.minimum), caps.frame_rate_hz.maximum)
             )
-        self.frame_rate_enabled.setEnabled(caps.frame_rate_enable_available)
+        self._frame_rate_enable_available = bool(caps.frame_rate_enable_available)
         frame_range = (
             f"{caps.frame_rate_hz.minimum:.2f}..{caps.frame_rate_hz.maximum:.2f} fps"
             if caps.frame_rate_hz.available
             else "not reported"
         )
-        self.acquisition_range.setText(
+        self._detected_acquisition = (
             f"Detected frame-rate capability: {frame_range} | "
             f"Production request: PLC tag {self.controller.config.tags.trigger}"
         )
@@ -1634,6 +1709,10 @@ class SettingsPage(QWidget):
                 self.plc_recipe_selector,
                 self.controller.config.plc_recipe_selector,
             )
+            self._select_combo_data(
+                self.plc_recipe_source,
+                self.controller.config.plc_recipe_source,
+            )
         finally:
             self._updating_controls = False
         self.update_plc_controls()
@@ -1731,7 +1810,7 @@ class SettingsPage(QWidget):
             gamma=self.gamma.value(),
             frame_rate_enabled=self.frame_rate_enabled.isChecked(),
             frame_rate_fps=self.frame_rate.value(),
-            trigger_mode="Off",
+            trigger_mode=self._combo_value(self.acquisition_mode),
             trigger_source="Software",
         ).normalized()
 
@@ -1837,6 +1916,7 @@ class SettingsPage(QWidget):
             plc_poll_ms=self.plc_poll.value(),
             plc_heartbeat_ms=self.plc_heartbeat.value(),
             plc_recipe_selector=self._combo_value(self.plc_recipe_selector),
+            plc_recipe_source=self._combo_value(self.plc_recipe_source),
             failure_retention_days=self.failure_retention_days.value(),
             failure_retention_max_gb=self.failure_retention_max_gb.value(),
             operator_name=self.operator.text().strip() or "Technician",
@@ -1863,6 +1943,7 @@ class SettingsPage(QWidget):
             plc_poll_ms=updated.plc_poll_ms,
             plc_heartbeat_ms=updated.plc_heartbeat_ms,
             plc_recipe_selector=updated.plc_recipe_selector,
+            plc_recipe_source=updated.plc_recipe_source,
             tags=updated.tags,
             fullscreen=updated.fullscreen,
             operator_name=updated.operator_name,
@@ -1891,6 +1972,7 @@ class SettingsPage(QWidget):
             or current.plc_poll_ms != updated.plc_poll_ms
             or current.plc_heartbeat_ms != updated.plc_heartbeat_ms
             or current.plc_recipe_selector != updated.plc_recipe_selector
+            or current.plc_recipe_source != updated.plc_recipe_source
             or asdict(current.tags) != asdict(updated.tags)
         )
 
