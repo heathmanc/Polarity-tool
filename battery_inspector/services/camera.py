@@ -73,6 +73,16 @@ class CameraCapabilities:
     current_exposure_auto: str = "Off"
     gain_auto_modes: tuple[str, ...] = ()
     current_gain_auto: str = "Off"
+    balance_ratio: NumericCapability = field(
+        default_factory=lambda: NumericCapability("White balance ratio")
+    )
+    balance_white_auto_modes: tuple[str, ...] = ()
+    current_balance_white_auto: str = "Off"
+    balance_ratio_selectors: tuple[str, ...] = ()
+    black_level: NumericCapability = field(
+        default_factory=lambda: NumericCapability("Black level")
+    )
+    gamma: NumericCapability = field(default_factory=lambda: NumericCapability("Gamma"))
     frame_rate_enable_available: bool = False
     frame_rate_enabled: bool = False
     trigger_modes: tuple[str, ...] = ()
@@ -111,6 +121,12 @@ class CameraCapabilities:
             "exposure_auto_modes": list(self.exposure_auto_modes),
             "current_exposure_auto": self.current_exposure_auto,
             "gain_auto_modes": list(self.gain_auto_modes),
+            "balance_ratio": self.balance_ratio.to_dict(),
+            "balance_white_auto_modes": list(self.balance_white_auto_modes),
+            "current_balance_white_auto": self.current_balance_white_auto,
+            "balance_ratio_selectors": list(self.balance_ratio_selectors),
+            "black_level": self.black_level.to_dict(),
+            "gamma": self.gamma.to_dict(),
             "current_gain_auto": self.current_gain_auto,
             "frame_rate_enable_available": self.frame_rate_enable_available,
             "frame_rate_enabled": self.frame_rate_enabled,
@@ -796,6 +812,66 @@ class BaslerCameraService(CameraService):
                 if not _set_numeric_node(gain_node, settings.gain_db, pylon, integer=False):
                     raise CameraError("Manual gain could not be written to the connected camera")
 
+        # --- colour and tone ------------------------------------------------
+        #
+        # Every one of these is skipped unless the station asked for it, so a
+        # camera keeps whatever it had and a station configured before these
+        # existed is unaffected. A camera that cannot do one of them is only an
+        # error when the station actually asked: a mono camera has no white
+        # balance, and that is not a fault unless someone tried to set it.
+        balance_white_auto = _normalized_auto_mode(
+            settings.balance_white_auto, allow_default=True
+        )
+        if balance_white_auto != "CameraDefault":
+            balance_white_node = _first_node(camera, "BalanceWhiteAuto")
+            if not _set_enum_node(balance_white_node, balance_white_auto, pylon):
+                raise CameraError(
+                    f"White-balance auto mode {balance_white_auto} is not supported "
+                    "by the connected camera"
+                )
+
+        requested_ratios = (
+            ("Red", settings.balance_ratio_red),
+            ("Green", settings.balance_ratio_green),
+            ("Blue", settings.balance_ratio_blue),
+        )
+        if any(value > 0 for _, value in requested_ratios):
+            if balance_white_auto == "Continuous":
+                raise CameraError(
+                    "Fixed white-balance ratios cannot be applied while the "
+                    "white-balance auto mode is Continuous. Set it to Off."
+                )
+            selector = _first_node(camera, "BalanceRatioSelector")
+            ratio_node = _first_node(camera, "BalanceRatio", "BalanceRatioAbs")
+            for channel, value in requested_ratios:
+                if value <= 0:
+                    continue
+                if not _set_enum_node(selector, channel, pylon):
+                    raise CameraError(
+                        f"The connected camera does not expose a {channel} "
+                        "white-balance channel"
+                    )
+                if not _set_numeric_node(ratio_node, value, pylon, integer=False):
+                    raise CameraError(
+                        f"The {channel} white-balance ratio could not be written "
+                        "to the connected camera"
+                    )
+
+        if settings.black_level_enabled:
+            black_level_node = _first_node(camera, "BlackLevel", "BlackLevelRaw")
+            if not _set_numeric_node(
+                black_level_node, settings.black_level, pylon, integer=False
+            ):
+                raise CameraError("Black level could not be written to the connected camera")
+
+        if settings.gamma_enabled:
+            gamma_enable = _first_node(camera, "GammaEnable")
+            if _node_writable(gamma_enable, pylon):
+                _set_bool_node(gamma_enable, True, pylon)
+            gamma_node = _first_node(camera, "Gamma")
+            if not _set_numeric_node(gamma_node, settings.gamma, pylon, integer=False):
+                raise CameraError("Gamma could not be written to the connected camera")
+
         frame_rate_enable = _first_node(camera, "AcquisitionFrameRateEnable")
         if _node_writable(frame_rate_enable, pylon):
             if not _set_bool_node(frame_rate_enable, settings.frame_rate_enabled, pylon):
@@ -1239,6 +1315,20 @@ def _read_capabilities(camera: Any, pylon: Any, device: CameraDeviceInfo | None)
         "Hz",
     )
 
+    # White balance is read through BalanceRatio, whose value depends on which
+    # channel BalanceRatioSelector currently points at. The range and increment
+    # are what the technician needs; the per-channel current values are read
+    # back individually when the panel is populated.
+    balance_ratio = _numeric_capability(
+        camera, pylon, "White balance ratio", ("BalanceRatio", "BalanceRatioAbs"), ""
+    )
+    balance_white_auto = _first_node(camera, "BalanceWhiteAuto")
+    balance_selector = _first_node(camera, "BalanceRatioSelector")
+    black_level = _numeric_capability(
+        camera, pylon, "Black level", ("BlackLevel", "BlackLevelRaw"), ""
+    )
+    gamma_capability = _numeric_capability(camera, pylon, "Gamma", ("Gamma",), "")
+
     pixel_format = _first_node(camera, "PixelFormat")
     exposure_auto = _first_node(camera, "ExposureAuto")
     gain_auto = _first_node(camera, "GainAuto")
@@ -1262,6 +1352,12 @@ def _read_capabilities(camera: Any, pylon: Any, device: CameraDeviceInfo | None)
         current_pixel_format=str(_node_value(pixel_format, "")),
         exposure_auto_modes=_enum_values(exposure_auto, pylon),
         current_exposure_auto=str(_node_value(exposure_auto, "Off")),
+        balance_ratio=balance_ratio,
+        balance_white_auto_modes=_enum_values(balance_white_auto, pylon),
+        current_balance_white_auto=str(_node_value(balance_white_auto, "Off")),
+        balance_ratio_selectors=_enum_values(balance_selector, pylon),
+        black_level=black_level,
+        gamma=gamma_capability,
         gain_auto_modes=_enum_values(gain_auto, pylon),
         current_gain_auto=str(_node_value(gain_auto, "Off")),
         frame_rate_enable_available=_node_writable(frame_rate_enable, pylon),

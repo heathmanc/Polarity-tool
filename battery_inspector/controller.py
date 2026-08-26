@@ -83,6 +83,8 @@ class AppController(QObject):
     camera_discovery_changed = Signal(object)
     camera_capabilities_changed = Signal(object)
     camera_test_completed = Signal(object)
+    camera_preview_frame = Signal(object)
+    camera_preview_state = Signal(bool, str)
     camera_operation_failed = Signal(str)
     camera_operation_busy = Signal(bool)
     plc_test_completed = Signal(object)
@@ -168,6 +170,13 @@ class AppController(QObject):
         self._camera_operation_in_flight = False
         self._camera_apply_task_started = False
         self._pending_camera_settings: CameraConfig | None = None
+        # Live camera preview. While it runs, the camera may be carrying
+        # settings a technician is still tuning, so it holds the settings to put
+        # back and the inspection path treats the camera as occupied.
+        self._camera_preview_active = False
+        self._camera_preview_in_flight = False
+        self._camera_preview_dirty = False
+        self._camera_preview_saved: CameraConfig | None = None
         self._pending_configuration: AppConfig | None = None
         self._plc_operation_in_flight = False
         self._plc_apply_task_started = False
@@ -216,6 +225,9 @@ class AppController(QObject):
         self.plc_heartbeat_timer = QTimer(self)
         self.plc_heartbeat_timer.setInterval(self.config.plc_heartbeat_ms)
         self.plc_heartbeat_timer.timeout.connect(self._heartbeat_tick)
+        self.camera_preview_timer = QTimer(self)
+        self.camera_preview_timer.setInterval(self.CAMERA_PREVIEW_INTERVAL_MS)
+        self.camera_preview_timer.timeout.connect(self._camera_preview_tick)
 
     def create_workstation_backup(self, destination: Path) -> bool:
         """Create a portable station ZIP without blocking the HMI thread."""
@@ -1418,6 +1430,142 @@ class AppController(QObject):
         self._end_activity("validation")
         self._resume_queued_work()
 
+    # --- live camera preview ------------------------------------------------
+    #
+    # Tuning exposure, gain, or white balance by applying a profile, taking one
+    # test frame, and reading the result is guesswork with a slow feedback loop.
+    # The preview streams frames while the technician moves a control, so the
+    # effect is visible as it is made.
+    #
+    # What makes it safe to drive a production camera this way:
+    #
+    #   * the station counts as camera-occupied while it runs, so no inspection
+    #     can be graded on settings that are still being tuned;
+    #   * the settings in force are transient -- they are written to the camera
+    #     and never to the station configuration;
+    #   * whatever was saved is restored when the preview stops, so leaving
+    #     without saving leaves the camera as it was found.
+
+    CAMERA_PREVIEW_INTERVAL_MS = 320
+
+    @property
+    def camera_preview_active(self) -> bool:
+        return self._camera_preview_active
+
+    def start_camera_preview(self) -> bool:
+        """Begin streaming preview frames. False if the camera is busy."""
+
+        if self._camera_preview_active:
+            return True
+        if (
+            self._startup_in_flight
+            or self._inspection_in_flight
+            or self._camera_operation_in_flight
+            or self._reference_capture_in_flight
+            or self._recipe_validation_in_flight
+            or self._ml_training_capture_in_flight
+            or self._ml_training_in_flight
+        ):
+            return False
+
+        self._camera_preview_saved = self.config.camera.normalized()
+        self._camera_preview_dirty = False
+        self._camera_preview_active = True
+        self.camera_preview_timer.start()
+        self.camera_preview_state.emit(True, "LIVE PREVIEW RUNNING")
+        self._add_event("CAMERA", "Live camera preview started")
+        return True
+
+    def stop_camera_preview(self, *, restore: bool = True) -> None:
+        """Stop streaming and, by default, put the saved settings back."""
+
+        if not self._camera_preview_active:
+            return
+        self.camera_preview_timer.stop()
+        self._camera_preview_active = False
+        saved = self._camera_preview_saved
+        self._camera_preview_saved = None
+
+        if restore and self._camera_preview_dirty and saved is not None:
+            self._camera_preview_dirty = False
+            try:
+                if self.camera.connected:
+                    self.camera.apply_configuration(saved)
+                self.camera_preview_state.emit(False, "SAVED CAMERA SETTINGS RESTORED")
+                self._add_event(
+                    "CAMERA",
+                    "Live camera preview stopped; saved settings restored",
+                )
+                return
+            except Exception as exc:  # noqa: BLE001
+                # Say so loudly. The camera is now carrying settings that are
+                # not the station's, and the technician is the only one who can
+                # resolve that.
+                self._add_event(
+                    "CAMERA",
+                    f"Saved camera settings could not be restored after preview: {exc}",
+                )
+                self.camera_preview_state.emit(
+                    False,
+                    "SAVED SETTINGS COULD NOT BE RESTORED — APPLY CAMERA SETTINGS BEFORE INSPECTING",
+                )
+                return
+
+        self._camera_preview_dirty = False
+        self.camera_preview_state.emit(False, "LIVE PREVIEW STOPPED")
+
+    def preview_camera_settings(self, settings: CameraConfig) -> bool:
+        """Write settings to the camera for preview only. Never persisted."""
+
+        if not self._camera_preview_active or self._camera_preview_in_flight:
+            return False
+        self._camera_preview_dirty = True
+        self._camera_preview_in_flight = True
+        task = ServiceTask(self._preview_apply, settings.normalized())
+        task.signals.completed.connect(self._camera_preview_frame_ready)
+        task.signals.failed.connect(self._camera_preview_failed)
+        task.signals.finished.connect(self._camera_preview_finished)
+        self.thread_pool.start(task)
+        return True
+
+    def _preview_apply(self, settings: CameraConfig) -> object:
+        if not self.camera.connected:
+            self.camera.connect()
+        self.camera.apply_configuration(settings)
+        return self.camera.grab()
+
+    def _camera_preview_tick(self) -> None:
+        if not self._camera_preview_active or self._camera_preview_in_flight:
+            return
+        if self._inspection_in_flight or self._camera_operation_in_flight:
+            return
+        self._camera_preview_in_flight = True
+        task = ServiceTask(self._preview_grab)
+        task.signals.completed.connect(self._camera_preview_frame_ready)
+        task.signals.failed.connect(self._camera_preview_failed)
+        task.signals.finished.connect(self._camera_preview_finished)
+        self.thread_pool.start(task)
+
+    def _preview_grab(self) -> object:
+        if not self.camera.connected:
+            self.camera.connect()
+        return self.camera.grab()
+
+    def _camera_preview_frame_ready(self, payload: object) -> None:
+        if self._camera_preview_active:
+            self.camera_preview_frame.emit(payload)
+
+    def _camera_preview_failed(self, message: str) -> None:
+        self.camera_preview_timer.stop()
+        self._camera_preview_active = False
+        self._camera_preview_saved = None
+        self._camera_preview_dirty = False
+        self.camera_preview_state.emit(False, f"LIVE PREVIEW STOPPED — {message}")
+        self._add_event("CAMERA", f"Live camera preview stopped: {message}")
+
+    def _camera_preview_finished(self) -> None:
+        self._camera_preview_in_flight = False
+
     def apply_camera_settings(
         self,
         settings: CameraConfig,
@@ -1871,6 +2019,10 @@ class AppController(QObject):
             or self._recipe_validation_in_flight
             or self._ml_training_capture_in_flight
             or self._ml_training_in_flight
+            # A live preview may be driving the camera with settings that have
+            # not been saved and have not been validated against any recipe.
+            # Nothing may be graded on them.
+            or self._camera_preview_active
         )
         if camera_occupied:
             # A PLC edge may already have been consumed by the polling service.
@@ -2522,6 +2674,8 @@ class AppController(QObject):
     def shutdown(self) -> None:
         self.plc_poll_timer.stop()
         self.plc_heartbeat_timer.stop()
+        # Restores the saved profile if a technician left a preview running.
+        self.stop_camera_preview(restore=True)
         try:
             if self.plc.connected and self._bypass_active:
                 try:

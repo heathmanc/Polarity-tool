@@ -48,9 +48,53 @@ Resolution           camera current/default, maximum acquisition ROI, or custom 
 ROI placement        centered or explicit X/Y offsets
 Exposure             camera default, manual, once, or continuous
 Gain                 camera default, manual, once, or continuous
+White balance        camera default, off, once, or continuous
+Balance ratios       per-channel red/green/blue; 0 leaves the channel untouched
+Black level          off, or an explicit value
+Gamma                off, or an explicit value
 Frame rate           camera controlled or an enabled limit
 Production trigger   configured PLC Trigger tag
 ```
+
+Every colour and tone field leaves the camera alone unless deliberately
+enabled, so a station configured before they existed is unaffected. A camera
+that cannot perform one of them raises an error only when the station actually
+asked for it: a mono camera has no white balance, and that is not a fault until
+someone tries to set it.
+
+### White balance is an inspection setting
+
+The silver/brass terminal-finish check compares the chroma of a terminal crop
+against the one stored in the recipe reference. The comparison is differential,
+so a constant colour cast largely cancels -- but a balance that drifts, or one
+the camera is choosing for itself frame by frame, moves the measurement that
+decides the check.
+
+Set white balance deliberately, fix it, and **recapture every recipe reference
+afterwards**. A reference captured under one balance and parts inspected under
+another is the failure mode this design has.
+
+## Live preview
+
+The CAMERA IMAGE tab streams frames while a control is moved, so the effect of
+an exposure, gain, white balance, black level, or gamma change is visible as it
+is made rather than after an apply-and-test cycle.
+
+While the preview runs:
+
+- the settings on screen are written to the camera and **never to the station
+  configuration**, so nothing is persisted until SAVE & APPLY;
+- the station counts as camera-occupied, and **no inspection can be graded** --
+  a manual trigger is refused and a PLC trigger is dropped for the controller's
+  timeout to catch;
+- stopping the preview restores the saved profile, so leaving without saving
+  leaves the camera as it was found. If that restore fails, the HMI says so
+  explicitly, because the camera is then carrying settings that are not the
+  station's.
+
+The preview stops on application shutdown, and refuses to start while an
+inspection, a reference capture, a validation run, or an ML capture owns the
+camera.
 
 The HMI reads each numeric node's minimum, maximum, increment, current value, writability, and reported unit. Geometry capabilities are probed while acquisition is idle because many GenICam cameras lock ROI nodes while streaming. Requested values are aligned to the connected camera's advertised increments before being written. Cameras that expose `GainRaw` instead of a dB `Gain` feature are displayed in raw/camera units rather than being mislabeled.
 

@@ -495,7 +495,7 @@ footer {
   <h1>Pole Position</h1>
   <p class="standfirst">How to run this station, wire it to the PLC, teach it a new battery, and train the model that reads the terminal stamps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.25.0</dd></div>
+    <div><dt>Applies to</dt><dd>v0.26.0</dd></div>
     <div><dt>Document</dt><dd>Rev A</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Replaces</dt><dd>Nothing</dd></div>
@@ -932,9 +932,9 @@ Inspection_Interlock_OK := Bypass_Effective OR BatteryVision.Pass;</code></pre>
 
   <div class="note stop">
     <span class="tag">Check what was actually saved</span>
-    <p>Builds before v0.25.0 could clear a terminal's red-ring requirement when a recipe was reopened for editing. A cleared requirement is invisible on the inspection screen and turns a part that should reject into a pass. After building or editing any recipe, confirm what is stored:</p>
+    <p>Builds before v0.26.0 could clear a terminal's red-ring requirement when a recipe was reopened for editing. A cleared requirement is invisible on the inspection screen and turns a part that should reject into a pass. After building or editing any recipe, confirm what is stored:</p>
     <pre><code>python scripts\diagnose_station.py --station "C:\ProgramData\Pole Position"</code></pre>
-    <p>Check the red-ring flag and the expected finish printed for each terminal against the real part. Do this for every recipe created or edited before v0.25.0.</p>
+    <p>Check the red-ring flag and the expected finish printed for each terminal against the real part. Do this for every recipe created or edited before v0.26.0.</p>
   </div>
 
   <h3>The reference picture</h3>
@@ -1124,7 +1124,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
         <tr><td>Good parts reject in a run</td><td>Lighting changed, the lens moved, the fixture shifted, or a new supplier's finish differs.</td><td>Compare a current picture with the recipe reference. Re-teach and revalidate if the part has genuinely changed.</td></tr>
         <tr><td><code>NO NEW CAMERA FRAME</code></td><td>The camera did not deliver a picture for that cycle.</td><td>Check the camera on Diagnostics and the cable. This is a fault, not a reject.</td></tr>
         <tr><td>PLC red in the bottom strip</td><td>Path, tag names, or network.</td><td>Settings &rarr; PLC, then <strong>APPLY &amp; TEST PYCOMM3</strong>.</td></tr>
-        <tr><td>Text overlapping on screen</td><td>A display scale that leaves too little room.</td><td>v0.25.0 scrolls instead of overlapping. If you still see overlap, report it with the monitor resolution and the Windows scale setting.</td></tr>
+        <tr><td>Text overlapping on screen</td><td>A display scale that leaves too little room.</td><td>v0.26.0 scrolls instead of overlapping. If you still see overlap, report it with the monitor resolution and the Windows scale setting.</td></tr>
         <tr><td>Training fails to start</td><td>Training runtime incomplete.</td><td>ML Train &rarr; Prepare &rarr; <strong>CHECK TRAINING RUNTIME</strong>.</td></tr>
         <tr><td>Backup or file operations stall</td><td>Antivirus scanning every file the station touches.</td><td>Exclude the program directory and <code>C:\ProgramData\Pole Position</code> from real-time scanning.</td></tr>
       </tbody>
@@ -1175,7 +1175,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position station handbook, Rev A, for application v0.25.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
+  <p><strong>Pole Position station handbook, Rev A, for application v0.26.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
   <p>This document is an unapproved draft. It does not replace your site's approved user manual, and it is not a controlled record until your quality process makes it one. Where this handbook and the station's own behaviour disagree, the station is right and this document needs correcting.</p>
 </footer>
 

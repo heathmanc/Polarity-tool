@@ -102,6 +102,25 @@ class SettingsPage(QWidget):
         self._build_plc_tab()
         self._connect_dirty_tracking()
 
+        # Writing to the camera on every spin-box tick would queue dozens of
+        # applies behind a dragged control. One apply settles the queue after
+        # the technician stops moving.
+        self._preview_debounce = QTimer(self)
+        self._preview_debounce.setSingleShot(True)
+        self._preview_debounce.setInterval(220)
+        self._preview_debounce.timeout.connect(self._push_preview_settings)
+        for control in self._camera_image_controls():
+            signal = (
+                control.toggled
+                if isinstance(control, QCheckBox)
+                else (
+                    control.currentIndexChanged
+                    if isinstance(control, QComboBox)
+                    else control.valueChanged
+                )
+            )
+            signal.connect(self._preview_settings_changed)
+
         self.save_button.clicked.connect(self.save)
         controller.camera_discovery_changed.connect(self.set_camera_discovery)
         controller.camera_capabilities_changed.connect(self.set_camera_capabilities)
@@ -109,6 +128,8 @@ class SettingsPage(QWidget):
         controller.camera_operation_failed.connect(self.camera_operation_failed)
         controller.camera_operation_busy.connect(self.set_camera_operation_busy)
         controller.camera_operation_queued.connect(self.camera_operation_queued)
+        controller.camera_preview_frame.connect(self._camera_preview_frame)
+        controller.camera_preview_state.connect(self._camera_preview_state)
         controller.plc_test_completed.connect(self.plc_test_completed)
         controller.plc_operation_failed.connect(self.plc_operation_failed)
         controller.plc_operation_busy.connect(self.set_plc_operation_busy)
@@ -446,7 +467,7 @@ class SettingsPage(QWidget):
         self.exposure_range.setProperty("muted", True)
         acquisition_layout.addWidget(self.exposure_range)
         acquisition_layout.addStretch(1)
-        image_root.addWidget(acquisition, 0, 0)
+        image_root.addWidget(acquisition, 0, 0)  # column 0, row 0
 
         image_format = PanelFrame(subpanel=True)
         image_layout = QVBoxLayout(image_format)
@@ -513,10 +534,87 @@ class SettingsPage(QWidget):
         self.resolution_range.setWordWrap(True)
         self.resolution_range.setProperty("muted", True)
         image_layout.addWidget(self.resolution_range)
-        image_root.addWidget(image_format, 0, 1)
+        image_root.addWidget(image_format, 0, 1, 2, 1)  # column 1, both rows
+
+        # COLOUR & TONE ------------------------------------------------------
+        colour = PanelFrame(subpanel=True)
+        colour_layout = QVBoxLayout(colour)
+        colour_layout.setContentsMargins(14, 12, 14, 12)
+        colour_title = QLabel("COLOUR & TONE")
+        colour_title.setObjectName("PanelTitle")
+        colour_layout.addWidget(colour_title)
+        colour_form = QFormLayout()
+
+        self.balance_white_auto = QComboBox()
+        self._populate_auto_combo(
+            self.balance_white_auto, self.controller.config.camera.balance_white_auto
+        )
+        self.balance_red = self._ratio_spin(self.controller.config.camera.balance_ratio_red)
+        self.balance_green = self._ratio_spin(self.controller.config.camera.balance_ratio_green)
+        self.balance_blue = self._ratio_spin(self.controller.config.camera.balance_ratio_blue)
+
+        self.black_level_enabled = QCheckBox("Set the black level")
+        self.black_level_enabled.setChecked(self.controller.config.camera.black_level_enabled)
+        self.black_level = QDoubleSpinBox()
+        self.black_level.setDecimals(2)
+        self.black_level.setRange(-1000.0, 1000.0)
+        self.black_level.setSingleStep(0.5)
+        self.black_level.setValue(self.controller.config.camera.black_level)
+
+        self.gamma_enabled = QCheckBox("Set gamma")
+        self.gamma_enabled.setChecked(self.controller.config.camera.gamma_enabled)
+        self.gamma = QDoubleSpinBox()
+        self.gamma.setDecimals(2)
+        self.gamma.setRange(0.01, 4.0)
+        self.gamma.setSingleStep(0.05)
+        self.gamma.setValue(self.controller.config.camera.gamma)
+
+        colour_form.addRow("White balance mode", self.balance_white_auto)
+        colour_form.addRow("Red ratio", self.balance_red)
+        colour_form.addRow("Green ratio", self.balance_green)
+        colour_form.addRow("Blue ratio", self.balance_blue)
+        colour_form.addRow("Black level", self.black_level_enabled)
+        colour_form.addRow("Black level value", self.black_level)
+        colour_form.addRow("Gamma", self.gamma_enabled)
+        colour_form.addRow("Gamma value", self.gamma)
+        colour_layout.addLayout(colour_form)
+
+        self.colour_note = QLabel(
+            "The silver/brass check compares colour against the recipe reference. "
+            "Change white balance and every reference must be recaptured."
+        )
+        self.colour_note.setWordWrap(True)
+        self.colour_note.setStyleSheet(
+            f"color: {AMBER}; background: {AMBER_BG}; border: 1px solid {AMBER}; padding: 6px;"
+        )
+        colour_layout.addWidget(self.colour_note)
+        colour_layout.addStretch(1)
+        image_root.addWidget(colour, 1, 0)  # column 0, row 1
+
+        # LIVE PREVIEW -------------------------------------------------------
+        live = PanelFrame(subpanel=True)
+        live_layout = QVBoxLayout(live)
+        live_layout.setContentsMargins(14, 12, 14, 12)
+        live_title = QLabel("LIVE PREVIEW")
+        live_title.setObjectName("PanelTitle")
+        live_layout.addWidget(live_title)
+        self.live_preview = CropPreview()
+        self.live_preview.setMinimumHeight(180)
+        live_layout.addWidget(self.live_preview, 1)
+        self.live_preview_status = QLabel("STOPPED")
+        self.live_preview_status.setWordWrap(True)
+        self.live_preview_status.setProperty("muted", True)
+        live_layout.addWidget(self.live_preview_status)
+        live_buttons = QHBoxLayout()
+        self.live_preview_button = QPushButton("START LIVE PREVIEW")
+        self.live_preview_button.clicked.connect(self._toggle_live_preview)
+        live_buttons.addWidget(self.live_preview_button)
+        live_layout.addLayout(live_buttons)
+        image_root.addWidget(live, 0, 2, 2, 1)  # column 2, both rows
+
         image_root.setColumnStretch(0, 1)
         image_root.setColumnStretch(1, 1)
-        image_root.setRowStretch(1, 1)
+        image_root.setColumnStretch(2, 1)
 
         self.camera_image_tab = image_tab
         self.tabs.addTab(image_tab, "CAMERA IMAGE")
@@ -1608,11 +1706,104 @@ class SettingsPage(QWidget):
             exposure_us=self.exposure.value(),
             gain_auto=self._combo_value(self.gain_auto),
             gain_db=self.gain.value(),
+            balance_white_auto=self._combo_value(self.balance_white_auto),
+            balance_ratio_red=self.balance_red.value(),
+            balance_ratio_green=self.balance_green.value(),
+            balance_ratio_blue=self.balance_blue.value(),
+            black_level_enabled=self.black_level_enabled.isChecked(),
+            black_level=self.black_level.value(),
+            gamma_enabled=self.gamma_enabled.isChecked(),
+            gamma=self.gamma.value(),
             frame_rate_enabled=self.frame_rate_enabled.isChecked(),
             frame_rate_fps=self.frame_rate.value(),
             trigger_mode="Off",
             trigger_source="Software",
         ).normalized()
+
+    def _camera_image_controls(self) -> list[QWidget]:
+        """The controls whose effect a technician tunes by eye."""
+
+        return [
+            self.exposure_auto,
+            self.exposure,
+            self.gain_auto,
+            self.gain,
+            self.balance_white_auto,
+            self.balance_red,
+            self.balance_green,
+            self.balance_blue,
+            self.black_level_enabled,
+            self.black_level,
+            self.gamma_enabled,
+            self.gamma,
+        ]
+
+    def _preview_settings_changed(self, *_args) -> None:
+        if self.controller.camera_preview_active:
+            self._preview_debounce.start()
+
+    @staticmethod
+    def _ratio_spin(value: float) -> QDoubleSpinBox:
+        """A white-balance channel ratio. Zero means leave the channel alone."""
+
+        spin = QDoubleSpinBox()
+        spin.setDecimals(3)
+        spin.setRange(0.0, 16.0)
+        spin.setSingleStep(0.01)
+        spin.setValue(max(0.0, float(value)))
+        spin.setSpecialValueText("camera default")
+        return spin
+
+    # --- live preview -------------------------------------------------------
+
+    def _toggle_live_preview(self) -> None:
+        if self.controller.camera_preview_active:
+            self.controller.stop_camera_preview(restore=True)
+            return
+        if not self.controller.start_camera_preview():
+            self.live_preview_status.setText(
+                "The camera is busy with an inspection or another capture. Try again in a moment."
+            )
+            return
+        # Push what is on screen straight away, so the first frame already shows
+        # the settings being tuned rather than the ones last saved.
+        self._push_preview_settings()
+
+    def _push_preview_settings(self) -> None:
+        """Send the on-screen settings to the camera, for preview only."""
+
+        if not self.controller.camera_preview_active:
+            return
+        self.controller.preview_camera_settings(self._camera_config_from_controls())
+
+    def _camera_preview_frame(self, frame: object) -> None:
+        if frame is None:
+            return
+        self.live_preview.set_pixmap_source(
+            QPixmap.fromImage(bgr_array_to_qimage(frame))
+        )
+
+    def _camera_preview_state(self, running: bool, message: str) -> None:
+        self.live_preview_button.setText(
+            "STOP LIVE PREVIEW" if running else "START LIVE PREVIEW"
+        )
+        self.live_preview_button.setObjectName("DangerButton" if running else "")
+        self.live_preview_button.style().unpolish(self.live_preview_button)
+        self.live_preview_button.style().polish(self.live_preview_button)
+        self.live_preview_status.setText(
+            message
+            + (
+                "  Settings are being written to the camera and are not saved. "
+                "Inspections are blocked while this runs."
+                if running
+                else ""
+            )
+        )
+        self.live_preview_status.setStyleSheet(
+            f"color: {AMBER}; font-weight: 700;" if running else ""
+        )
+        if not running:
+            self.live_preview.set_pixmap_source(QPixmap())
 
     def _collect_config(self) -> AppConfig:
         tags = PlcTagMap(**{key: edit.text().strip() for key, edit in self.tag_edits.items()})

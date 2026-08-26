@@ -68,6 +68,23 @@ class CameraConfig:
     gain_auto: str = "CameraDefault"  # CameraDefault | Off | Once | Continuous
     gain_db: float = 0.0
 
+    # Colour and tone. The silver/brass terminal-finish check compares the
+    # chroma of a terminal crop against the recipe reference, so white balance
+    # is not a cosmetic setting here: an uncontrolled or drifting balance moves
+    # the measurement that decides the check. Black level and gamma move the
+    # brightness distribution the same check clips against.
+    #
+    # Each of these leaves the camera alone unless deliberately enabled, so a
+    # station configured before they existed behaves exactly as it did.
+    balance_white_auto: str = "CameraDefault"  # CameraDefault | Off | Once | Continuous
+    balance_ratio_red: float = 0.0  # 0 leaves the channel untouched
+    balance_ratio_green: float = 0.0
+    balance_ratio_blue: float = 0.0
+    black_level_enabled: bool = False
+    black_level: float = 0.0
+    gamma_enabled: bool = False
+    gamma: float = 1.0
+
     frame_rate_enabled: bool = False
     frame_rate_fps: float = 10.0
     # Compatibility fields for older station profiles. Production inspection is
@@ -100,6 +117,11 @@ class CameraConfig:
             if self.gain_auto in {"CameraDefault", "Off", "Once", "Continuous"}
             else "CameraDefault"
         )
+        balance_white_auto = (
+            self.balance_white_auto
+            if self.balance_white_auto in {"CameraDefault", "Off", "Once", "Continuous"}
+            else "CameraDefault"
+        )
         resolution_mode = (
             self.resolution_mode
             if self.resolution_mode in {"CameraDefault", "Maximum", "Custom"}
@@ -121,6 +143,14 @@ class CameraConfig:
             exposure_us=max(0.0, float(self.exposure_us)),
             gain_auto=gain_auto,
             gain_db=float(self.gain_db),
+            balance_white_auto=balance_white_auto,
+            balance_ratio_red=max(0.0, float(self.balance_ratio_red)),
+            balance_ratio_green=max(0.0, float(self.balance_ratio_green)),
+            balance_ratio_blue=max(0.0, float(self.balance_ratio_blue)),
+            black_level_enabled=bool(self.black_level_enabled),
+            black_level=float(self.black_level),
+            gamma_enabled=bool(self.gamma_enabled),
+            gamma=max(0.01, float(self.gamma)),
             frame_rate_enabled=bool(self.frame_rate_enabled),
             frame_rate_fps=max(0.1, float(self.frame_rate_fps)),
             trigger_mode="Off",
