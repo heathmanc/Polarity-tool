@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.29.0** source
+This README is the current project and handoff guide for the **v0.30.0** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.29.0` |
-| Release tag | `v0.29.0` |
+| Application version | `0.30.0` |
+| Release tag | `v0.30.0` |
 | Tagged commit | `3c1d5d1424d8221cca93e79b791c75626d1fd079` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -88,6 +88,10 @@ Recorded project status at this handoff point:
   acquisition; and enforces that one recipe number or name names exactly one
   recipe. **Set Recipe source before the first run after upgrading.** See
   `docs/RELEASE_NOTES_v0.29.0.md`.
+- v0.30.0 adds two station-to-station transfers smaller than a workstation
+  backup: a checksummed ML model package, and a full recipe package carrying a
+  revision's reference image, validation evidence, and bound model. See
+  `docs/RELEASE_NOTES_v0.30.0.md`.
 - v0.26.0 adds a live camera preview on the CAMERA IMAGE tab and exposes white
   balance, black level, and gamma. White balance in particular is an inspection
   setting: the silver/brass check compares colour against the recipe reference,
@@ -365,7 +369,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.29.0-Setup-x64.exe
+Pole-Position-v0.30.0-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -1123,9 +1127,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.29.0-Setup-x64.exe
-dist\windows\Pole-Position-v0.29.0-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.29.0-requirements-lock.txt
+dist\windows\Pole-Position-v0.30.0-Setup-x64.exe
+dist\windows\Pole-Position-v0.30.0-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.30.0-requirements-lock.txt
 ```
 
 The build:
@@ -1453,6 +1457,7 @@ this README, current source, or current subsystem documents.
 | v0.27.0 | Validation counts a different confirmed part or a moved one; validation sample count is a station setting; ML Training and Settings behind a passcode; wheel cannot change values |
 | v0.28.0 | PLC selector decides the recipe every trigger; unresolvable selection refused and drops Ready; optional PLC station-readiness tag; Logout separate from Exit |
 | v0.29.0 | Recipe source is a station setting and a blank selector is refused, not defaulted; triggered-snapshot acquisition; one selector value names exactly one recipe |
+| v0.30.0 | ML model package and full recipe package transfers between stations |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1488,7 +1493,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.29.0 installer, `.sha256`, and requirements lock
+- [ ] v0.30.0 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

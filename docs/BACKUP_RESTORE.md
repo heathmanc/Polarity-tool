@@ -6,6 +6,25 @@ Use the workstation backup when moving Pole Position to a replacement PC,
 before major computer service, or before a controlled station-state change.
 The result is one portable ZIP. Do not edit files inside the ZIP.
 
+## Three transfers, not one
+
+The workstation backup moves a whole station. Two smaller packages move one
+thing each, for the cases where both machines are staying:
+
+| Transfer | Moves | Where |
+| --- | --- | --- |
+| **Workstation backup** | the entire station: settings, all recipes, ML data and models, audit history, retained evidence | Settings → STATION TRANSFER |
+| **Model package** | one ONNX model and its manifest | Settings → POLARITY ML MODEL PACKAGE |
+| **Recipe package** | one recipe revision with its reference image, validation evidence, and bound model | Recipes → EXPORT ▾ → Full recipe package |
+
+Both packages are checksummed ZIPs: every member is listed in a manifest with
+its SHA-256, and an import that does not match refuses rather than installing a
+file that was damaged or changed after it was written.
+
+The rest of this document is about the workstation backup. The two packages are
+described in `docs/RECIPE_EDITING.md` and below under **Model and recipe
+packages**.
+
 ## What the ZIP contains
 
 - `config.json` station settings.
@@ -156,3 +175,59 @@ PC's hardware installation. After restore, verify:
 - Installed ONNX model identity and runtime check.
 - One known-good and one known-reject validation cycle under the approved site
   procedure.
+
+## Model and recipe packages
+
+### Model package
+
+**Settings → POLARITY ML MODEL PACKAGE → EXPORT MODEL PACKAGE** writes the ONNX
+model and manifest this station is inspecting with. **IMPORT MODEL PACKAGE**
+verifies one and installs it as the receiving station's model.
+
+Installing a model revalidates nothing. A recipe revision stays bound to the
+model SHA-256 it was validated against: one bound to a different hash keeps
+failing closed until it is revalidated. Moving a model to a second station is
+what makes recipes bound to that hash resolvable there.
+
+### Recipe package
+
+**Recipes → EXPORT ▾ → Full recipe package** writes one recipe revision with:
+
+- the recipe payload, including its validation records;
+- the reference image the station captured and accepted;
+- the ONNX model and manifest, when the revision is ML-bound *and* this
+  station's installed model is the one it is bound to. If the station has since
+  installed a different model, the package says so and carries no model.
+
+**IMPORT** on the Recipes page accepts either a package (`.zip`) or the older
+geometry template (`.json`). The two are not interchangeable:
+
+| | Geometry template (JSON) | Recipe package (ZIP) |
+| --- | --- | --- |
+| Carries geometry, ROIs, expected markings | yes | yes |
+| Carries the reference image | no | yes |
+| Carries validation evidence | no | yes |
+| Destination must capture a new reference | yes | no |
+| Destination must revalidate | yes | no |
+
+**A recipe package carries validation evidence across machines as-is.** That
+evidence was recorded on the exporting station's camera, lens, lighting, and
+fixture, and nothing on the destination can confirm those match. This is a
+deliberate decision so a qualified recipe can be put on a second line without
+re-teaching it. What follows from it is yours to enforce:
+
+- Import only onto a station of the same build — same camera model, lens,
+  working distance, light, and fixture.
+- The import dialog names the source station, the export time, the sample count,
+  and whether the bound model matches the one installed here. Read it.
+- Run one known-good and one known-bad part on the destination before releasing
+  the recipe to production. This is the check that catches a lighting or
+  fixture difference, and it is the only one.
+- Both the export and the import are written to the audit log, with the source
+  station and the evidence counts, so a recipe's provenance stays traceable.
+
+A package can never overwrite an existing revision: a revision is an immutable
+production record on both machines, so importing one the station already has is
+refused. Export a new revision from the source station instead. A package whose
+recipe number or name is already used by a *different* recipe on the
+destination is also refused — one selector value names one product.

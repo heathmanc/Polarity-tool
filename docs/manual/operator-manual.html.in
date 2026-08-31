@@ -495,8 +495,8 @@ footer {
   <h1>Pole Position</h1>
   <p class="standfirst">How to run this station, wire it to the PLC, teach it a new battery, and train the model that reads the terminal stamps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.29.0</dd></div>
-    <div><dt>Document</dt><dd>Rev C</dd></div>
+    <div><dt>Applies to</dt><dd>v0.30.0</dd></div>
+    <div><dt>Document</dt><dd>Rev D</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Replaces</dt><dd>Nothing</dd></div>
   </dl>
@@ -942,7 +942,15 @@ Inspection_Interlock_OK := Bypass_Effective OR BatteryVision.Pass;</code></pre>
 
   <h3>The reference picture</h3>
   <p>The reference must be a controlled known-good battery. A bad reference teaches the station the wrong finish or the wrong marking, and every part after it is judged against that mistake. Your site's recipe approval process is what prevents this; the software cannot.</p>
-  <p>Each capture stores its frame identity, timestamp, resolution, camera backend and profile, quality measurements, and a SHA-256. An imported recipe never trusts an outside file as station evidence &mdash; it forces a fresh capture on this station.</p>
+  <p>Each capture stores its frame identity, timestamp, resolution, camera backend and profile, quality measurements, and a SHA-256. A recipe imported from a <strong>geometry template</strong> (a <code>.json</code> file) never trusts an outside file as station evidence &mdash; it forces a fresh capture on this station.</p>
+
+  <p>A <strong>recipe package</strong> (a <code>.zip</code> file, written by <code>EXPORT &#9662; &rarr; Full recipe package</code>) is the other case. It carries the exporting station's reference image, its validation evidence, and the ML model the revision is bound to, so the recipe can grade parts on a second machine without being taught again. Every file in it is checksummed and a package that does not match is refused.</p>
+
+  <div class="note care">
+    <span class="tag">A recipe package moves evidence between machines</span>
+    <p>The validation evidence in a package was recorded on the exporting station's camera, lens, lighting, and fixture. The receiving station cannot check that yours are the same, and it does not try &mdash; it tells you where the package came from and asks you to confirm. Import one only onto a station of the same build, and <strong>run one known-good and one known-bad part before you release the recipe</strong>. That run is the only check that will catch a lighting or fixture difference.</p>
+    <p>A package can never overwrite a revision the station already has, and it is refused if its recipe number or name already belongs to a different recipe here.</p>
+  </div>
 
   <h3>Placing the marking circle</h3>
   <p>The marking circle is a search area, not a template. Threaded posts turn independently of the battery case, so the station finds the round top inside the circle, measures the stamp angle, and squares it up before comparing.</p>
@@ -1178,7 +1186,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position station handbook, Rev C, for application v0.29.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
+  <p><strong>Pole Position station handbook, Rev D, for application v0.30.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
   <p>This document is an unapproved draft. It does not replace your site's approved user manual, and it is not a controlled record until your quality process makes it one. Where this handbook and the station's own behaviour disagree, the station is right and this document needs correcting.</p>
 </footer>
 

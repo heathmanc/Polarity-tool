@@ -635,3 +635,29 @@ def test_a_rejected_battery_is_outlined_in_the_reject_colour(
     else:
         assert outline.color == ROI_BATTERY
         assert outline.label == "REGISTERED BATTERY"
+
+
+def test_both_recipe_exports_are_reachable_and_named(qapp, controller) -> None:
+    """Two exports with different meanings must be told apart before the click.
+
+    The geometry template deliberately drops the reference and forces a fresh
+    capture; the package deliberately carries it. Choosing the wrong one is
+    only discovered on the destination machine, so the menu names each.
+    """
+
+    page = RecipesPage(controller)
+
+    labels = [action.text() for action in page.export_menu.actions()]
+
+    assert "Full recipe package (ZIP)…" in labels
+    assert "Geometry template (JSON)…" in labels
+
+
+def test_the_model_package_controls_are_on_the_model_panel(qapp, controller) -> None:
+    """A station receiving a model has no trained candidate, so this cannot
+    live behind the training flow."""
+
+    page = SettingsPage(controller)
+
+    assert page.ml_export_package.text() == "EXPORT MODEL PACKAGE"
+    assert page.ml_import_package.text() == "IMPORT MODEL PACKAGE"

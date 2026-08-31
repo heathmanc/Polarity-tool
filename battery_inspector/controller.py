@@ -57,6 +57,13 @@ from battery_inspector.services import (
     TriggerEdgeLatch,
 )
 from battery_inspector.services.workers import ServiceTask
+from battery_inspector.package_transfer import (
+    export_model_package,
+    export_recipe_package,
+    import_model_package,
+    import_recipe_package,
+    inspect_recipe_package,
+)
 from battery_inspector.station_transfer import (
     create_station_backup,
     stage_station_restore,
@@ -783,6 +790,170 @@ class AppController(QObject):
             details={"model": str(target_model), "manifest": str(target_manifest)},
         )
         return info
+
+    # --- moving one model or one recipe between stations --------------------
+
+    def export_model_package(self, destination: Path) -> dict[str, Any]:
+        """Package the model this station is inspecting with."""
+
+        return export_model_package(
+            model_path=self._resolve_project_path(self.config.ml.model_path),
+            manifest_path=self._resolve_project_path(self.config.ml.manifest_path),
+            destination=Path(destination),
+            station_name=self.config.operator_name,
+        )
+
+    def import_model_package(self, source: Path, *, install: bool = True) -> dict[str, Any]:
+        """Verify a model package, lay it down, and make it this station's model.
+
+        Installing does not make any existing recipe production-ready: a recipe
+        revision stays bound to the model hash it was validated against, and one
+        bound to a different hash keeps failing closed until it is revalidated.
+        """
+
+        if self._inspection_in_flight or self._recipe_validation_in_flight:
+            raise ValueError(
+                "Wait for the current inspection or validation cycle before importing a model."
+            )
+        result = import_model_package(Path(source), self.data_directory / "models")
+        manifest = result["manifest"]
+        if install:
+            result["info"] = self.apply_ml_configuration(
+                model_path=result["model_path"],
+                manifest_path=result["manifest_path"],
+                use_for_new_revisions=self.config.ml.use_for_new_revisions,
+            )
+        self._add_event(
+            "ML_TRAINING",
+            "Imported ML model package "
+            f"{manifest.get('model_id', '')} {manifest.get('model_version', '')} "
+            f"from station {manifest.get('source_station', '') or 'unnamed'}"
+            + ("" if install else " without installing it"),
+            details={
+                "model_sha256": result.get("model_sha256", ""),
+                "source_package": str(source),
+                "installed": bool(install),
+            },
+        )
+        return result
+
+    def export_recipe_package(
+        self,
+        recipe: Recipe,
+        destination: Path,
+        *,
+        include_model: bool = True,
+    ) -> dict[str, Any]:
+        """Package one recipe revision, with the model it is bound to."""
+
+        model_path: Path | None = None
+        manifest_path: Path | None = None
+        if include_model:
+            binding = recipe.classifier_settings.normalized()
+            station_model = self.ml_model_info(require_runtime=False)
+            # Only ship the station model when it is the one this revision was
+            # validated against. Any other model would travel with the recipe
+            # looking like its binding and would not satisfy it.
+            if (
+                binding.ml_model_sha256
+                and binding.ml_model_sha256 == str(station_model.get("model_sha256", ""))
+            ):
+                model_path = self._resolve_project_path(self.config.ml.model_path)
+                manifest_path = self._resolve_project_path(self.config.ml.manifest_path)
+
+        result = export_recipe_package(
+            recipe=recipe,
+            destination=Path(destination),
+            model_path=model_path,
+            model_manifest_path=manifest_path,
+            station_name=self.config.operator_name,
+        )
+        self._add_event(
+            "RECIPE",
+            f"Exported recipe package {recipe.name} revision {recipe.revision}"
+            + (" with its bound model" if model_path is not None else " without a model"),
+            details={
+                "recipe_id": recipe.recipe_id,
+                "revision": recipe.revision,
+                "destination": str(result.get("path", "")),
+                "validation_complete": recipe.validation_complete,
+            },
+        )
+        return result
+
+    def inspect_recipe_package(self, source: Path) -> dict[str, Any]:
+        """Read a recipe package's manifest so a technician can decide."""
+
+        manifest = inspect_recipe_package(Path(source))
+        binding = str(manifest.get("ml_model_sha256", "") or "")
+        station_model = str(self.ml_model_info(require_runtime=False).get("model_sha256", ""))
+        manifest = dict(manifest)
+        manifest["station_model_sha256"] = station_model
+        manifest["model_matches_station"] = bool(binding and binding == station_model)
+        return manifest
+
+    def import_recipe_package(self, source: Path, *, install_model: bool = True) -> dict[str, Any]:
+        """Bring a packaged recipe onto this station, evidence and all.
+
+        The recipe arrives with the validation evidence the source station
+        recorded, which is a deliberate product decision: a package exists to
+        move a qualified recipe to a second machine without re-teaching it. The
+        evidence was taken on another station's camera and lighting, so the
+        import is a technician's decision and both what was imported and where
+        it came from are written to the audit log.
+        """
+
+        if self.busy:
+            raise ValueError("Wait until the station is idle before importing a recipe package.")
+        result = import_recipe_package(
+            Path(source),
+            reference_root=self.data_directory / "recipe_staging",
+            models_root=self.data_directory / "models",
+        )
+        recipe: Recipe = result["recipe"]
+        existing = self.repository.get_recipe(recipe.recipe_id, recipe.revision)
+        if existing is not None:
+            raise ValueError(
+                f"{recipe.name} revision {recipe.revision} is already on this station. "
+                "A revision is immutable, so an import may not overwrite one; export a "
+                "new revision from the source station instead."
+            )
+
+        model = result.get("model")
+        if install_model and isinstance(model, dict):
+            self.apply_ml_configuration(
+                model_path=str(model["model_path"]),
+                manifest_path=str(model["manifest_path"]),
+                use_for_new_revisions=self.config.ml.use_for_new_revisions,
+            )
+
+        saved = self.repository.save_recipe(
+            recipe,
+            username=self.config.operator_name,
+            message=f"Stored imported revision {recipe.revision} of {recipe.name}",
+        )
+        manifest = result["manifest"]
+        self._add_event(
+            "RECIPE",
+            f"Imported recipe package {saved.name} revision {saved.revision} from station "
+            f"{manifest.get('source_station', '') or 'unnamed'} "
+            f"(validation evidence carried across stations: "
+            f"{saved.validation_runs_passed}/{saved.validation_runs_required} samples)",
+            details={
+                "recipe_id": saved.recipe_id,
+                "recipe_number": saved.recipe_number,
+                "revision": saved.revision,
+                "source_station": manifest.get("source_station", ""),
+                "source_created_at_utc": manifest.get("created_at_utc", ""),
+                "validation_complete": saved.validation_complete,
+                "ml_model_sha256": manifest.get("ml_model_sha256", ""),
+                "model_imported": bool(model),
+                "source_package": str(source),
+            },
+        )
+        self.recipes_changed.emit(self.list_recipes())
+        result["recipe"] = saved
+        return result
 
     def _replace_plc_service(self, replacement, active_backend: str) -> None:
         previous = self.plc

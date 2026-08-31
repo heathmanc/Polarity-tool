@@ -28,7 +28,14 @@ Every revision must have an explicitly accepted reference image.
 - A new capture includes its frame identity, timestamp, resolution, camera backend/profile, quality measurements, and SHA-256.
 - Retake replaces the pending capture before it is accepted.
 - Keeping an old reference is an explicit technician choice; it is not assumed automatically.
-- Imported recipes never trust an external file path as station evidence and force a fresh station capture.
+- A recipe imported from a **geometry template** (JSON) never trusts an external
+  file path as station evidence and forces a fresh station capture.
+- A recipe imported from a **recipe package** (ZIP) carries the exporting
+  station's reference image and validation evidence, verified against the
+  checksums in the package manifest and rewritten under this station's data
+  directory. Import one only onto a station of the same build, and run a
+  known-good and a known-bad part before releasing it. See
+  `docs/BACKUP_RESTORE.md`.
 - Saving copies the accepted reference into the revision-specific runtime directory.
 - The reference must be a controlled known-good battery. A bad reference can
   anchor the wrong visible terminal finish or visual marking class and must be

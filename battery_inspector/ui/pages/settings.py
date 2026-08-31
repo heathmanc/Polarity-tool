@@ -979,6 +979,22 @@ class SettingsPage(QWidget):
         model_actions.addWidget(self.ml_apply_button)
         package_layout.addLayout(model_actions)
 
+        transfer_actions = QHBoxLayout()
+        self.ml_export_package = QPushButton("EXPORT MODEL PACKAGE")
+        self.ml_import_package = QPushButton("IMPORT MODEL PACKAGE")
+        transfer_actions.addWidget(self.ml_export_package)
+        transfer_actions.addWidget(self.ml_import_package)
+        transfer_actions.addStretch(1)
+        package_layout.addLayout(transfer_actions)
+        transfer_note = QLabel(
+            "A model package is a checksummed ZIP holding this station's ONNX model "
+            "and its manifest, for moving one trained model to another station "
+            "without moving the whole workstation."
+        )
+        transfer_note.setWordWrap(True)
+        transfer_note.setProperty("muted", True)
+        package_layout.addWidget(transfer_note)
+
         self.ml_use_new_revisions = QCheckBox(
             "Use the installed ML model for new and edited recipe revisions"
         )
@@ -1042,7 +1058,75 @@ class SettingsPage(QWidget):
         self.tabs.addTab(tab, "VISION / ML")
         self.ml_browse_model.clicked.connect(self.browse_ml_model)
         self.ml_browse_manifest.clicked.connect(self.browse_ml_manifest)
+        self.ml_export_package.clicked.connect(self.export_ml_model_package)
+        self.ml_import_package.clicked.connect(self.import_ml_model_package)
         self.ml_apply_button.clicked.connect(self.apply_ml_only)
+
+    def export_ml_model_package(self) -> None:
+        """Package the model this station is inspecting with."""
+
+        info = self.controller.ml_model_info(require_runtime=False)
+        default_name = (
+            f"{info.get('model_id', 'polarity-model') or 'polarity-model'}_"
+            f"{info.get('model_version', 'model') or 'model'}_package.zip"
+        )
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Export ML model package",
+            str(self.controller.project_root / default_name),
+            "Pole Position model package (*.zip)",
+        )
+        if not selected:
+            return
+        try:
+            result = self.controller.export_model_package(Path(selected))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Export failed", str(exc))
+            return
+        manifest = result.get("manifest", {})
+        QMessageBox.information(
+            self,
+            "Model package written",
+            f"{manifest.get('model_id', '')} {manifest.get('model_version', '')} was "
+            f"written to:\n{result.get('path', '')}\n\n"
+            f"SHA-256: {manifest.get('model_sha256', '')}\n\n"
+            "A recipe revision stays bound to the model hash it was validated "
+            "against, so installing this on another station makes recipes bound to "
+            "this hash resolvable there — it does not revalidate anything.",
+        )
+
+    def import_ml_model_package(self) -> None:
+        selected, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Import ML model package",
+            str(self.controller.project_root),
+            "Pole Position model package (*.zip)",
+        )
+        if not selected:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Import model package",
+            "Verify this package and install it as this station's ML model?\n\n"
+            "Recipe revisions bound to a different model hash keep failing closed "
+            "until they are revalidated against the installed model.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = self.controller.import_model_package(Path(selected))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Import failed", str(exc))
+            return
+        manifest = result.get("manifest", {})
+        # The controller emits ml_model_changed on install, which this page is
+        # already connected to, so the status panel refreshes itself.
+        QMessageBox.information(
+            self,
+            "Model installed",
+            f"{manifest.get('model_id', '')} {manifest.get('model_version', '')} is "
+            f"now this station's model.\n\nSHA-256: {result.get('model_sha256', '')}",
+        )
 
     def browse_ml_model(self) -> None:
         selected, _filter = QFileDialog.getOpenFileName(

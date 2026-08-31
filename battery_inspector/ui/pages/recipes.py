@@ -6,13 +6,14 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -67,7 +68,16 @@ class RecipesPage(QWidget):
         self.new_button.setObjectName("PrimaryButton")
         self.edit_button = QPushButton("EDIT / NEW REVISION")
         self.import_button = QPushButton("IMPORT")
-        self.export_button = QPushButton("EXPORT")
+        self.export_button = QPushButton("EXPORT  ▾")
+        # Two exports with very different meanings, so the technician picks one
+        # by name rather than discovering the difference after moving a file to
+        # another machine.
+        self.export_menu = QMenu(self)
+        self.export_geometry_action = QAction("Geometry template (JSON)…", self)
+        self.export_package_action = QAction("Full recipe package (ZIP)…", self)
+        self.export_menu.addAction(self.export_package_action)
+        self.export_menu.addAction(self.export_geometry_action)
+        self.export_button.setMenu(self.export_menu)
         self.delete_button = QPushButton("DELETE")
         self.delete_button.setObjectName("DangerButton")
         toolbar.addWidget(self.new_button)
@@ -167,7 +177,8 @@ class RecipesPage(QWidget):
             lambda _item: self.open_edit_recipe_wizard()
         )
         self.import_button.clicked.connect(self.import_recipe)
-        self.export_button.clicked.connect(self.export_recipe)
+        self.export_geometry_action.triggered.connect(self.export_recipe)
+        self.export_package_action.triggered.connect(self.export_recipe_package)
         self.delete_button.clicked.connect(self.delete_recipe)
         self.activate_button.clicked.connect(self.activate_selected)
         self.revisions_button.clicked.connect(self.show_revisions)
@@ -469,14 +480,58 @@ class RecipesPage(QWidget):
             encoding="utf-8",
         )
 
+    def export_recipe_package(self) -> None:
+        """Everything needed to run this revision on another machine."""
+
+        recipe = self.selected_recipe()
+        if recipe is None:
+            return
+        if recipe.reference_image is None or not recipe.reference_image.path:
+            QMessageBox.warning(
+                self,
+                "Nothing to package",
+                "This revision has no reference image, so there is nothing to move. "
+                "Capture and accept a reference first.",
+            )
+            return
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export recipe package",
+            f"{recipe.name}_rev{recipe.revision}_package.zip",
+            "Pole Position recipe package (*.zip)",
+        )
+        if not filename:
+            return
+        try:
+            result = self.controller.export_recipe_package(recipe, Path(filename))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Export failed", str(exc))
+            return
+        manifest = result.get("manifest", {})
+        carried_model = "with its bound ML model" if manifest.get("includes_model") else (
+            "without an ML model: this station's installed model is not the one this "
+            "revision is bound to, so install the right model on the destination"
+        )
+        QMessageBox.information(
+            self,
+            "Recipe package written",
+            f"{recipe.name} revision {recipe.revision} was written {carried_model}.\n\n"
+            "The package carries this station's reference image and validation "
+            "evidence. Import it only onto a station with the same camera, lens, "
+            "lighting, and fixture: nothing on the destination can check that for you.",
+        )
+
     def import_recipe(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            "Import recipe geometry",
+            "Import recipe package or geometry",
             "",
-            "Recipe JSON (*.json)",
+            "Recipe package or geometry (*.zip *.json);;Pole Position recipe package (*.zip);;Recipe JSON (*.json)",
         )
         if not filename:
+            return
+        if filename.lower().endswith(".zip"):
+            self._import_recipe_package(Path(filename))
             return
         try:
             imported = Recipe.from_dict(
@@ -512,6 +567,69 @@ class RecipesPage(QWidget):
             recipe=template,
             initial_reference_action="capture",
             template_mode=True,
+        )
+
+    def _import_recipe_package(self, source: Path) -> None:
+        """Take a qualified recipe from another station, evidence and all.
+
+        The technician is told what is being trusted before anything is written:
+        which station recorded the evidence, when, how many samples, and whether
+        the model it was validated against is the one installed here.
+        """
+
+        try:
+            manifest = self.controller.inspect_recipe_package(source)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Import failed", str(exc))
+            return
+
+        matches = bool(manifest.get("model_matches_station"))
+        model_line = (
+            "The model it was validated against is the model installed here."
+            if matches
+            else (
+                "WARNING: it was validated against a different ML model than this "
+                "station has installed"
+                + (
+                    ". The package carries that model and importing will install it."
+                    if manifest.get("includes_model")
+                    else ", and the package does not carry that model. The recipe will "
+                    "not be able to grade a part until that exact model is installed."
+                )
+            )
+        )
+        answer = QMessageBox.question(
+            self,
+            "Import recipe package",
+            f"Import {manifest.get('recipe_name', '')} revision "
+            f"{manifest.get('revision', '')} (recipe number "
+            f"{manifest.get('recipe_number', '')})?\n\n"
+            f"Exported from station: {manifest.get('source_station', '') or 'unnamed'}\n"
+            f"Exported at: {manifest.get('created_at_utc', '')}\n"
+            f"Validation: {manifest.get('validation_runs_passed', 0)}"
+            f"/{manifest.get('validation_runs_required', 0)} samples, "
+            f"complete={manifest.get('validation_complete')}\n\n"
+            f"{model_line}\n\n"
+            "The validation evidence was recorded on the exporting station's camera, "
+            "lens, and lighting, and is imported as-is. Import only if this station "
+            "is the same build. Run a known-good and a known-bad part before "
+            "releasing it to production.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = self.controller.import_recipe_package(source)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "Import failed", str(exc))
+            return
+        recipe = result["recipe"]
+        self.set_recipes(self.controller.list_recipes())
+        QMessageBox.information(
+            self,
+            "Recipe imported",
+            f"{recipe.name} revision {recipe.revision} is on this station"
+            + (" and its ML model was installed" if result.get("model") else "")
+            + ".\n\nRun a known-good and a known-bad part before releasing it.",
         )
 
     def show_revisions(self) -> None:

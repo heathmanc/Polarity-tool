@@ -3,7 +3,7 @@
   <h1>PLC Interface Control Document</h1>
   <p class="standfirst">Every signal the station reads, every signal it writes, how long each one holds its state, and what the controller must do about it.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.29.0</dd></div>
+    <div><dt>Applies to</dt><dd>v0.30.0</dd></div>
     <div><dt>Document</dt><dd>Rev C</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Audience</dt><dd>Controls engineer</dd></div>
@@ -379,6 +379,6 @@ END_IF;</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position PLC Interface Control Document, Rev C, for application v0.29.0.</strong> Generated from the station's own interface specification by <code>scripts/build_plc_icd.py</code>. Where this document and the station's behaviour disagree, the station is right and this document needs correcting.</p>
+  <p><strong>Pole Position PLC Interface Control Document, Rev C, for application v0.30.0.</strong> Generated from the station's own interface specification by <code>scripts/build_plc_icd.py</code>. Where this document and the station's behaviour disagree, the station is right and this document needs correcting.</p>
   <p>This document is an unapproved draft and is not a controlled record until your quality process makes it one.</p>
 </footer>
