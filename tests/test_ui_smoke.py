@@ -32,6 +32,7 @@ from battery_inspector.models import (
 from battery_inspector.ui import MainWindow
 from battery_inspector.ui.pages.diagnostics import DiagnosticsPage
 from battery_inspector.ui.pages.events import EventsPage
+from battery_inspector.ui.pages.failure_review import FailureReviewPage
 from battery_inspector.ui.pages.inspection_detail import InspectionDetailPage
 from battery_inspector.ui.pages.ml_training import MlTrainingPage
 from battery_inspector.ui.pages.overview import OverviewPage
@@ -45,6 +46,7 @@ PAGE_TYPES = [
     (MainWindow.OVERVIEW, OverviewPage),
     (MainWindow.INSPECTION, InspectionDetailPage),
     (MainWindow.RECIPES, RecipesPage),
+    (MainWindow.FAILURES, FailureReviewPage),
     (MainWindow.ML_TRAINING, MlTrainingPage),
     (MainWindow.DIAGNOSTICS, DiagnosticsPage),
     (MainWindow.EVENTS, EventsPage),

@@ -21,6 +21,7 @@ from battery_inspector.models import InspectionCycleStatus, InspectionResult, Re
 from battery_inspector.ui_state import derive_run_state
 from battery_inspector.ui.pages.diagnostics import DiagnosticsPage
 from battery_inspector.ui.pages.events import EventsPage
+from battery_inspector.ui.pages.failure_review import FailureReviewPage
 from battery_inspector.ui.pages.inspection_detail import InspectionDetailPage
 from battery_inspector.ui.pages.ml_training import MlTrainingPage
 from battery_inspector.ui.pages.overview import OverviewPage
@@ -33,10 +34,11 @@ class MainWindow(QMainWindow):
     OVERVIEW = 0
     INSPECTION = 1
     RECIPES = 2
-    ML_TRAINING = 3
-    DIAGNOSTICS = 4
-    EVENTS = 5
-    SETTINGS = 6
+    FAILURES = 3
+    ML_TRAINING = 4
+    DIAGNOSTICS = 5
+    EVENTS = 6
+    SETTINGS = 7
 
     def __init__(self, controller: AppController) -> None:
         super().__init__()
@@ -44,6 +46,9 @@ class MainWindow(QMainWindow):
         self._busy = controller.busy
         self._maintenance_unlocked = False
         self._last_inspection = controller.last_inspection
+        # True while the detail view is showing a retained failure rather than
+        # the live result, so BACK returns to the review queue.
+        self._returning_to_failures = False
         self._cycle_status = controller.cycle_status
         self.setWindowTitle("Pole Position — Battery Polarity Inspection")
         self.setWindowIcon(QIcon(str(controller.assets_directory / "app_icon.png")))
@@ -71,6 +76,7 @@ class MainWindow(QMainWindow):
         self.overview_page = OverviewPage()
         self.inspection_page = InspectionDetailPage()
         self.recipes_page = RecipesPage(controller)
+        self.failure_review_page = FailureReviewPage(controller)
         self.ml_training_page = MlTrainingPage(controller)
         self.diagnostics_page = DiagnosticsPage(controller)
         self.events_page = EventsPage(controller)
@@ -79,6 +85,7 @@ class MainWindow(QMainWindow):
             self.overview_page,
             self.inspection_page,
             self.recipes_page,
+            self.failure_review_page,
             self.ml_training_page,
             self.diagnostics_page,
             self.events_page,
@@ -95,8 +102,11 @@ class MainWindow(QMainWindow):
         )
         self.overview_page.simulate_plc_trigger_requested.connect(self.simulate_plc_trigger)
         self.overview_page.bypass_toggle_requested.connect(self.request_bypass_change)
-        self.inspection_page.back_requested.connect(lambda: self.navigate(self.OVERVIEW))
+        self.inspection_page.back_requested.connect(self._leave_inspection_detail)
         self.recipes_page.recipe_activated.connect(lambda _recipe: self.navigate(self.OVERVIEW))
+        # Opening a retained failure shows it in the same detail view the
+        # operator saw live, and BACK returns to the queue rather than Overview.
+        self.failure_review_page.inspection_selected.connect(self.show_retained_failure)
 
         controller.inspection_updated.connect(self.set_inspection)
         controller.active_recipe_changed.connect(self.set_active_recipe)
@@ -184,6 +194,7 @@ class MainWindow(QMainWindow):
             (self.OVERVIEW, "⌂", "Overview"),
             (self.INSPECTION, "◎", "Inspection"),
             (self.RECIPES, "▣", "Recipes"),
+            (self.FAILURES, "⚑", "Failures"),
             (self.ML_TRAINING, "ML", "ML Train"),
             (self.DIAGNOSTICS, "⌁", "Diagnostics"),
             (self.EVENTS, "△", "Events"),
@@ -333,8 +344,40 @@ class MainWindow(QMainWindow):
             button.setChecked(button_index == index)
         if index == self.EVENTS:
             self.events_page.refresh()
+        elif index == self.FAILURES:
+            # Walking up to the screen must show what is there now, not what
+            # was there when the window was built.
+            self.failure_review_page.refresh()
         elif index == self.ML_TRAINING:
             self.ml_training_page.refresh_counts()
+
+    def show_retained_failure(self, result: InspectionResult) -> None:
+        """Render a stored failure in the live detail view.
+
+        The record replaces what the detail page is showing, but never
+        ``_last_inspection``: that is the live production result the Overview
+        header and counters describe, and reviewing history must not appear to
+        change what the station just did.
+        """
+
+        self._returning_to_failures = True
+        self.inspection_page.set_recipe(
+            [terminal for terminal in getattr(result, "terminals", [])]
+        )
+        self.inspection_page.set_inspection(result)
+        self.navigate(self.INSPECTION)
+
+    def _leave_inspection_detail(self) -> None:
+        """BACK returns where the reviewer came from."""
+
+        if getattr(self, "_returning_to_failures", False):
+            self._returning_to_failures = False
+            if self._last_inspection is not None:
+                # Put the live result back so the next live BACK is coherent.
+                self.inspection_page.set_inspection(self._last_inspection)
+            self.navigate(self.FAILURES)
+            return
+        self.navigate(self.OVERVIEW)
 
     def set_active_recipe(self, recipe: Recipe) -> None:
         self.active_recipe_metric.set_value(

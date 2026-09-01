@@ -148,7 +148,10 @@ class NavButton(QPushButton):
         super().__init__(f"{symbol}\n{label.upper()}", parent)
         self.setObjectName("NavButton")
         self.setCheckable(True)
-        self.setMinimumHeight(66)
+        # 62px, not 66: the sidebar carries ten of these once Failure Review is
+        # in it, and at 1280x760 the column no longer fitted. Still a
+        # comfortable gloved touch target, and measured by test_layout_fits.
+        self.setMinimumHeight(62)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
 

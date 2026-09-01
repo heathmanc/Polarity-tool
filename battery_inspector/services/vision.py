@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 from time import monotonic_ns, perf_counter
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from uuid import uuid4
 
 import cv2
@@ -3074,12 +3074,16 @@ class InspectionPipeline:
         with self._retention_lock:
             self.failure_retention_policy = policy
 
-    def apply_failure_retention(self) -> FailureRetentionReport:
+    def apply_failure_retention(
+        self,
+        protected_directories: Iterable[Path | str] = (),
+    ) -> FailureRetentionReport:
         with self._retention_lock:
             try:
                 return apply_failure_retention(
                     self.output_directory / "inspections",
                     self.failure_retention_policy,
+                    protected_directories=protected_directories,
                 )
             except OSError:
                 # Evidence is already safely written at this point. A locked folder

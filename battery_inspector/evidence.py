@@ -128,11 +128,21 @@ def _remove_cycle(root: Path, cycle: _EvidenceCycle) -> bool:
         return False
 
 
+def _is_protected(cycle: _EvidenceCycle, protected: frozenset[str]) -> bool:
+    if not protected:
+        return False
+    try:
+        return str(cycle.directory.resolve()) in protected
+    except OSError:
+        return str(cycle.directory) in protected
+
+
 def apply_failure_retention(
     inspections_root: Path,
     policy: FailureRetentionPolicy,
     *,
     now: datetime | None = None,
+    protected_directories: Iterable[Path | str] = (),
 ) -> FailureRetentionReport:
     """Purge production PASS artifacts and bound retained non-PASS evidence.
 
@@ -140,9 +150,16 @@ def apply_failure_retention(
     Validation, recipe, model, and training directories are never traversed.
     The newest failure is preserved for capacity enforcement even when that one
     package is larger than the configured maximum.
+
+    ``protected_directories`` are held back from the age and capacity passes.
+    A failure someone marked to keep is usually the interesting one, and it was
+    also the one most likely to age out of the window before anybody looked at
+    it. Protection never applies to PASS evidence: production PASS is
+    memory-only and is removed unconditionally.
     """
 
     root = inspections_root.expanduser()
+    protected = frozenset(str(Path(item).expanduser().resolve()) for item in protected_directories)
     cycles = _production_evidence_cycles(root)
     pass_removed = expired_removed = capacity_removed = bytes_removed = 0
 
@@ -165,6 +182,9 @@ def apply_failure_retention(
         cutoff = utc_now - timedelta(days=max_age_days)
         retained: list[_EvidenceCycle] = []
         for cycle in failures:
+            if _is_protected(cycle, protected):
+                retained.append(cycle)
+                continue
             if cycle.timestamp < cutoff and _remove_cycle(root, cycle):
                 expired_removed += 1
                 bytes_removed += cycle.size_bytes
@@ -179,6 +199,8 @@ def apply_failure_retention(
     for cycle in list(failures[:-1]) if max_bytes else []:
         if total <= max_bytes:
             break
+        if _is_protected(cycle, protected):
+            continue
         if _remove_cycle(root, cycle):
             failures.remove(cycle)
             capacity_removed += 1
@@ -201,6 +223,66 @@ def apply_failure_retention(
         bytes_remaining=max(0, total),
         failure_cycles_remaining=len(failures),
     )
+
+
+def remove_failure_evidence(
+    inspections_root: Path,
+    directories: Iterable[Path | str],
+) -> dict[str, int]:
+    """Delete named failure evidence folders, and nothing else.
+
+    Reuses retention's scoping rule rather than deleting a path a caller hands
+    over: a directory is removed only if it is a two-level cycle directory
+    beneath ``inspections_root`` carrying a readable manifest with a
+    disposition. So a wrong path, a symlink, or a recipe/validation/model
+    directory cannot be deleted through this, whatever the caller passes.
+
+    A stray PASS directory is eligible, since production PASS evidence is
+    prohibited and retention removes it unconditionally anyway. Nothing in the
+    review page can select one -- PASS is never a row -- so this only matters
+    if a caller passes one deliberately.
+    """
+
+    root = inspections_root.expanduser()
+    requested = set()
+    for item in directories:
+        try:
+            requested.add(str(Path(item).expanduser().resolve()))
+        except OSError:
+            continue
+
+    removed = 0
+    bytes_removed = 0
+    skipped = 0
+    for cycle in _production_evidence_cycles(root):
+        try:
+            resolved = str(cycle.directory.resolve())
+        except OSError:
+            continue
+        if resolved not in requested:
+            continue
+        requested.discard(resolved)
+        if _remove_cycle(root, cycle):
+            removed += 1
+            bytes_removed += cycle.size_bytes
+        else:
+            skipped += 1
+
+    if root.is_dir():
+        for day in list(root.iterdir()):
+            try:
+                if day.is_dir() and not day.is_symlink() and not any(day.iterdir()):
+                    day.rmdir()
+            except OSError:
+                continue
+
+    # Anything still in `requested` was not an eligible production failure
+    # directory: already gone, or never ours to delete.
+    return {
+        "removed": removed,
+        "bytes_removed": bytes_removed,
+        "skipped": skipped + len(requested),
+    }
 
 
 def utc_now_iso() -> str:

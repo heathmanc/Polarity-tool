@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 from uuid import uuid4
 
 from battery_inspector.build_info import INSPECTION_ENGINE
@@ -21,6 +21,17 @@ from battery_inspector.models import (
     TerminalRecipe,
     TerminalRole,
 )
+
+
+# Triage states for a retained failure. A record moves NEW -> REVIEWED once a
+# technician has looked at it, and to TRAINING once its crops have been added to
+# the ML training set. The state exists so "walk up and review the failures"
+# does not mean re-reading the same twenty every shift, and so clearing can be
+# keyed on something safer than "everything".
+REVIEW_NEW = "new"
+REVIEW_REVIEWED = "reviewed"
+REVIEW_TRAINING = "training"
+REVIEW_STATES = (REVIEW_NEW, REVIEW_REVIEWED, REVIEW_TRAINING)
 
 
 class DuplicateRecipeIdentifier(ValueError):
@@ -99,6 +110,31 @@ class RecipeRepository:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_recipes_number "
                 "ON recipes(recipe_number, revision DESC)"
+            )
+            # Triage state for retained failures. Added as columns rather than a
+            # side table so a record and what was done about it cannot drift
+            # apart, and so an older station upgrades in place with every
+            # existing failure starting as NEW.
+            inspection_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(inspections)").fetchall()
+            }
+            for column, definition in (
+                ("review_state", f"TEXT NOT NULL DEFAULT '{REVIEW_NEW}'"),
+                ("reviewed_by", "TEXT NOT NULL DEFAULT ''"),
+                ("reviewed_at_utc", "TEXT NOT NULL DEFAULT ''"),
+                ("exported_at_utc", "TEXT NOT NULL DEFAULT ''"),
+                ("training_at_utc", "TEXT NOT NULL DEFAULT ''"),
+                ("keep_flag", "INTEGER NOT NULL DEFAULT 0"),
+                ("evidence_directory", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if column not in inspection_columns:
+                    connection.execute(
+                        f"ALTER TABLE inspections ADD COLUMN {column} {definition}"  # noqa: S608
+                    )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_inspections_timestamp "
+                "ON inspections(timestamp_utc DESC)"
             )
 
     @staticmethod
@@ -478,8 +514,9 @@ class RecipeRepository:
             connection.execute(
                 """
                 INSERT OR REPLACE INTO inspections
-                    (inspection_id, timestamp_utc, recipe_id, disposition, reason, payload_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (inspection_id, timestamp_utc, recipe_id, disposition, reason,
+                     payload_json, evidence_directory)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     inspection_payload["inspection_id"],
@@ -488,8 +525,190 @@ class RecipeRepository:
                     inspection_payload["disposition"],
                     inspection_payload["reason"],
                     json.dumps(inspection_payload, separators=(",", ":")),
+                    # Denormalized so retention protection and clearing can find
+                    # the folder without parsing every payload.
+                    str(inspection_payload.get("evidence_directory", "") or ""),
                 ),
             )
+
+    def list_failures(
+        self,
+        *,
+        recipe_id: str = "",
+        review_state: str = "",
+        since_utc: str = "",
+        until_utc: str = "",
+        reason_contains: str = "",
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Retained non-PASS records, newest first, with their triage state.
+
+        Production PASS is memory-only, so this is every product result the
+        station has kept. Each row carries the full stored payload plus the
+        triage columns; the caller renders it with the same detail widgets the
+        live result uses.
+        """
+
+        clauses = ["disposition <> 'pass'"]
+        params: list[Any] = []
+        if recipe_id.strip():
+            clauses.append("recipe_id = ?")
+            params.append(recipe_id.strip())
+        if review_state.strip():
+            clauses.append("review_state = ?")
+            params.append(review_state.strip())
+        if since_utc.strip():
+            clauses.append("timestamp_utc >= ?")
+            params.append(since_utc.strip())
+        if until_utc.strip():
+            clauses.append("timestamp_utc <= ?")
+            params.append(until_utc.strip())
+        if reason_contains.strip():
+            clauses.append("reason LIKE ?")
+            params.append(f"%{reason_contains.strip()}%")
+        params.append(max(1, int(limit)))
+
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM inspections WHERE "  # noqa: S608
+                + " AND ".join(clauses)
+                + " ORDER BY timestamp_utc DESC LIMIT ?",
+                params,
+            ).fetchall()
+
+        failures: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                # A row whose payload cannot be read is still evidence that a
+                # part rejected. Show it rather than hiding it.
+                payload = {}
+            failures.append(
+                {
+                    "inspection_id": str(row["inspection_id"]),
+                    "timestamp_utc": str(row["timestamp_utc"]),
+                    "recipe_id": str(row["recipe_id"]),
+                    "recipe_name": str(payload.get("recipe_name", "")),
+                    "disposition": str(row["disposition"]),
+                    "reason": str(row["reason"]),
+                    "review_state": str(row["review_state"] or REVIEW_NEW),
+                    "reviewed_by": str(row["reviewed_by"] or ""),
+                    "reviewed_at_utc": str(row["reviewed_at_utc"] or ""),
+                    "exported_at_utc": str(row["exported_at_utc"] or ""),
+                    "training_at_utc": str(row["training_at_utc"] or ""),
+                    "keep": bool(row["keep_flag"]),
+                    "evidence_directory": str(
+                        row["evidence_directory"] or payload.get("evidence_directory", "")
+                    ),
+                    "payload": payload,
+                }
+            )
+        return failures
+
+    def failure_counts(self) -> dict[str, int]:
+        """How much is waiting, by triage state. Drives the review page header."""
+
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT review_state, COUNT(*) AS total FROM inspections "
+                "WHERE disposition <> 'pass' GROUP BY review_state"
+            ).fetchall()
+            kept = connection.execute(
+                "SELECT COUNT(*) AS total FROM inspections "
+                "WHERE disposition <> 'pass' AND keep_flag = 1"
+            ).fetchone()
+        counts = {state: 0 for state in REVIEW_STATES}
+        for row in rows:
+            counts[str(row["review_state"] or REVIEW_NEW)] = int(row["total"])
+        counts["total"] = sum(counts[state] for state in REVIEW_STATES)
+        counts["kept"] = int(kept["total"] if kept else 0)
+        return counts
+
+    def protected_evidence_directories(self) -> list[str]:
+        """Evidence retention must not delete, because somebody marked it keep."""
+
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT evidence_directory, payload_json FROM inspections "
+                "WHERE keep_flag = 1 AND disposition <> 'pass'"
+            ).fetchall()
+        directories: list[str] = []
+        for row in rows:
+            directory = str(row["evidence_directory"] or "")
+            if not directory:
+                try:
+                    directory = str(json.loads(row["payload_json"]).get("evidence_directory", ""))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    directory = ""
+            if directory:
+                directories.append(directory)
+        return directories
+
+    def set_failure_review_state(
+        self,
+        inspection_ids: list[str],
+        state: str,
+        *,
+        username: str,
+    ) -> int:
+        if state not in REVIEW_STATES:
+            raise ValueError(f"Unknown review state: {state}")
+        if not inspection_ids:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connection() as connection:
+            cursor = connection.executemany(
+                "UPDATE inspections SET review_state = ?, reviewed_by = ?, "
+                "reviewed_at_utc = ? WHERE inspection_id = ?",
+                [(state, username, now, item) for item in inspection_ids],
+            )
+            return int(cursor.rowcount or 0)
+
+    def set_failure_keep(self, inspection_ids: list[str], keep: bool) -> int:
+        if not inspection_ids:
+            return 0
+        with self._connection() as connection:
+            cursor = connection.executemany(
+                "UPDATE inspections SET keep_flag = ? WHERE inspection_id = ?",
+                [(1 if keep else 0, item) for item in inspection_ids],
+            )
+            return int(cursor.rowcount or 0)
+
+    def mark_failures_exported(self, inspection_ids: list[str]) -> int:
+        if not inspection_ids:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connection() as connection:
+            cursor = connection.executemany(
+                "UPDATE inspections SET exported_at_utc = ? WHERE inspection_id = ?",
+                [(now, item) for item in inspection_ids],
+            )
+            return int(cursor.rowcount or 0)
+
+    def mark_failures_trained(self, inspection_ids: list[str], *, username: str) -> int:
+        if not inspection_ids:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connection() as connection:
+            cursor = connection.executemany(
+                "UPDATE inspections SET training_at_utc = ?, review_state = ?, "
+                "reviewed_by = ?, reviewed_at_utc = ? WHERE inspection_id = ?",
+                [(now, REVIEW_TRAINING, username, now, item) for item in inspection_ids],
+            )
+            return int(cursor.rowcount or 0)
+
+    def delete_failures(self, inspection_ids: list[str]) -> int:
+        """Remove rows. Deleting the evidence on disk is the caller's job."""
+
+        if not inspection_ids:
+            return 0
+        with self._connection() as connection:
+            cursor = connection.executemany(
+                "DELETE FROM inspections WHERE inspection_id = ?",
+                [(item,) for item in inspection_ids],
+            )
+            return int(cursor.rowcount or 0)
 
     def purge_passing_history(self) -> dict[str, int]:
         """Remove legacy production PASS rows and their per-cycle audit entries.

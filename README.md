@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.30.0** source
+This README is the current project and handoff guide for the **v0.31.0** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.30.0` |
-| Release tag | `v0.30.0` |
+| Application version | `0.31.0` |
+| Release tag | `v0.31.0` |
 | Tagged commit | `b09c10e416dfd09bfe055f5ec5fefaeb8df0f919` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -92,6 +92,9 @@ Recorded project status at this handoff point:
   backup: a checksummed ML model package, and a full recipe package carrying a
   revision's reference image, validation evidence, and bound model. See
   `docs/RELEASE_NOTES_v0.30.0.md`.
+- v0.31.0 adds the Failure Review screen: browse retained rejects, hold them
+  back from retention, add their crops to ML training under labels a technician
+  chooses, export them, and clear them. See `docs/RELEASE_NOTES_v0.31.0.md`.
 - v0.26.0 adds a live camera preview on the CAMERA IMAGE tab and exposes white
   balance, black level, and gamma. White balance in particular is an inspection
   setting: the silver/brass check compares colour against the recipe reference,
@@ -285,14 +288,16 @@ philosophy, not a formal claim of site ISA-101 compliance.
 
 | Page | Primary use |
 | --- | --- |
-| Overview | Normal operation, machine state, active recipe, last frame/result, session counts, manual inspection, PLC simulation test trigger, bypass, counter reset |
+| Overview | Normal operation, machine state, the recipe that graded the last part, last frame/result, session counts, manual inspection, PLC simulation test trigger, bypass, counter reset |
 | Inspection | One-terminal-at-a-time result evidence, expected/detected marking and finish, face validity, ring status, confidence, diagnostics, failure export |
-| Recipes | Create, import/export, revise, validate, activate, and review numbered recipes |
+| Recipes | Create, import/export, revise, validate, select, and review numbered recipes |
+| Failures | Review retained rejects, hold them from retention, add their crops to ML training, export them, and clear them |
 | ML Train | Capture, review, prepare, train, evaluate, and install a classifier candidate |
 | Diagnostics | Camera, PLC, model, vision, and resource status |
 | Events | Recipe/configuration/bypass/failure audit trail |
 | Settings | General, camera, PLC, model, retention, and backup/restore configuration |
-| Logout | Confirms and exits the application; it is not a user-authentication logout |
+| Logout | Locks the maintenance screens and returns to Overview; it is not a user-authentication logout |
+| Exit | Confirms and closes the application |
 
 The design target is 1920 x 1080. The application remains usable down to
 1280 x 760, but the exact deployed monitor resolution, Windows scaling, touch
@@ -369,7 +374,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.30.0-Setup-x64.exe
+Pole-Position-v0.31.0-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -832,6 +837,42 @@ It does not delete recipe references, validation templates, validation
 captures, ML samples, datasets, training runs, installed models, configuration,
 or audit records.
 
+A failure marked **KEEP** on the Failures page is held back from both the age
+and capacity passes until it is released. The failure worth investigating is
+usually the one somebody is still working on, and it was also the one most
+likely to age out of the window before they got to it. KEEP never applies to
+PASS evidence: production PASS is memory-only and is removed unconditionally.
+
+### Reviewing failures
+
+**Failures** lists every retained non-PASS record newest first, with filters for
+triage state, age, and reason text. Opening one renders it in the same detail
+view the operator saw live. Each record carries a triage state -- NEW, REVIEWED,
+SENT TO TRAINING -- with who moved it and when.
+
+Four actions operate on the selection:
+
+| Action | What it does |
+| --- | --- |
+| KEEP / RELEASE | Holds the record back from retention, or lets it age out |
+| ADD TO ML TRAINING | Adds the part's terminal crops to the training set under labels the technician chooses |
+| EXPORT SELECTED | Writes the records and their evidence as one checksummed ZIP with a summary index |
+| CLEAR SELECTED | Deletes the evidence and the rows, after a confirmation naming what is held or never exported |
+
+**The technician labels the crop, never the model.** A rejected part is exactly
+the case where the classifier may have been wrong, so the label dialog
+preselects nothing and shows the station's reading only as context. Defaulting
+to the detected class would train the model on its own mistakes. Crops are taken
+from the stored full-resolution frame using the recorded terminal outline and
+re-cropped through the same `ml_input_crop` contract a live capture uses, so a
+sample added here is indistinguishable from one captured on the ML Training
+page.
+
+Clearing is scoped by the same rule as retention: only a two-level cycle
+directory beneath `runtime/inspections/` carrying a readable manifest can be
+removed, whatever path is passed. It never acts on the whole list implicitly --
+an empty selection is a no-op.
+
 ### Typical retained evidence
 
 Depending on where the cycle failed, a non-PASS directory can include:
@@ -1127,9 +1168,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.30.0-Setup-x64.exe
-dist\windows\Pole-Position-v0.30.0-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.30.0-requirements-lock.txt
+dist\windows\Pole-Position-v0.31.0-Setup-x64.exe
+dist\windows\Pole-Position-v0.31.0-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.31.0-requirements-lock.txt
 ```
 
 The build:
@@ -1296,6 +1337,10 @@ them:
 13c. Only the station decides when the camera exposes. Hardware triggering is
     normalized away; acquisition is either a station-issued software trigger or
     free run sampled by the station.
+13d. Retained failure evidence is reviewable, and what is done with it is
+    recorded: triage state, who reviewed it, what was exported, what went to
+    training. A crop added to the training set is labelled by a technician,
+    never by the classifier that produced the reject.
 14. Bypass never manufactures PASS and must be owned by PLC interlock logic.
 15. Camera selection remains first available and serial-independent.
 16. Production model weights remain separate from the Windows installer.
@@ -1458,6 +1503,7 @@ this README, current source, or current subsystem documents.
 | v0.28.0 | PLC selector decides the recipe every trigger; unresolvable selection refused and drops Ready; optional PLC station-readiness tag; Logout separate from Exit |
 | v0.29.0 | Recipe source is a station setting and a blank selector is refused, not defaulted; triggered-snapshot acquisition; one selector value names exactly one recipe |
 | v0.30.0 | ML model package and full recipe package transfers between stations |
+| v0.31.0 | Failure Review: triage, keep-from-retention, technician-labelled crops to ML training, export, clear |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1493,7 +1539,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.30.0 installer, `.sha256`, and requirements lock
+- [ ] v0.31.0 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

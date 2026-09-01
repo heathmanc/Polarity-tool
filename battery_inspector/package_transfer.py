@@ -286,6 +286,72 @@ def import_model_package(source: Path, models_root: Path) -> dict[str, Any]:
     }
 
 
+# --- failure evidence packages ----------------------------------------------
+
+FAILURE_MANIFEST_NAME = "pole_position_failure_export.json"
+FAILURE_KIND = "failures"
+
+
+def export_failure_package(
+    *,
+    records: list[dict[str, Any]],
+    destination: Path,
+    station_name: str = "",
+    description: str = "",
+) -> dict[str, Any]:
+    """Package a set of retained failures for quality to look at elsewhere.
+
+    One ZIP holding each record's evidence folder plus a summary index, so a
+    reviewer opening it sees what rejected and why without the station.
+    """
+
+    if not records:
+        raise PackageTransferError("No failures were selected to export")
+
+    members: list[tuple[str, Path]] = []
+    index: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for record in records:
+        inspection_id = str(record.get("inspection_id", "") or "")
+        directory = Path(str(record.get("evidence_directory", "") or ""))
+        entry = {
+            "inspection_id": inspection_id,
+            "timestamp_utc": str(record.get("timestamp_utc", "")),
+            "recipe_name": str(record.get("recipe_name", "")),
+            "disposition": str(record.get("disposition", "")),
+            "reason": str(record.get("reason", "")),
+            "review_state": str(record.get("review_state", "")),
+        }
+        if not inspection_id or not directory.is_dir():
+            # Retention may have removed the folder while the row survives.
+            # Say so in the index rather than dropping the record silently.
+            entry["evidence"] = "MISSING"
+            missing.append(inspection_id or "unknown")
+            index.append(entry)
+            continue
+        folder = f"failures/{_safe_component(inspection_id, 'inspection')}"
+        for path in sorted(item for item in directory.rglob("*") if item.is_file()):
+            members.append((f"{folder}/{path.relative_to(directory).as_posix()}", path))
+        entry["evidence"] = folder
+        index.append(entry)
+
+    if not members:
+        raise PackageTransferError(
+            "None of the selected failures still have evidence on this station. "
+            "Retention may have removed it."
+        )
+
+    manifest = {
+        "kind": FAILURE_KIND,
+        "source_station": station_name,
+        "description": description,
+        "record_count": len(index),
+        "evidence_missing": missing,
+        "records": index,
+    }
+    return _write_package(destination, FAILURE_MANIFEST_NAME, manifest, members)
+
+
 # --- recipe packages --------------------------------------------------------
 
 

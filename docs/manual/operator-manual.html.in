@@ -495,8 +495,8 @@ footer {
   <h1>Pole Position</h1>
   <p class="standfirst">How to run this station, wire it to the PLC, teach it a new battery, and train the model that reads the terminal stamps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.30.0</dd></div>
-    <div><dt>Document</dt><dd>Rev D</dd></div>
+    <div><dt>Applies to</dt><dd>v0.31.0</dd></div>
+    <div><dt>Document</dt><dd>Rev E</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Replaces</dt><dd>Nothing</dd></div>
   </dl>
@@ -530,7 +530,7 @@ footer {
 </section>
 
 <section class="part" id="tour">
-  <div class="part-head"><span class="part-num">01</span><h2>The seven screens</h2></div>
+  <div class="part-head"><span class="part-num">01</span><h2>The screens</h2></div>
   <p class="part-intro">Buttons down the left side switch screens. Everything below is the same on every screen.</p>
 
   {{FIGURE:overview|The Overview screen after a part passed. The strip along the top and the strip along the bottom never change, whichever screen you are on.}}
@@ -646,6 +646,43 @@ footer {
     <span class="tag">Why a pass cannot be exported</span>
     <p>The station saves pictures for rejects only. A passed part leaves no pictures behind on purpose &mdash; it keeps the disk from filling up with images nobody will ever look at. So the export button does nothing for a part that passed. That is normal, not a fault.</p>
   </div>
+
+  <h3 id="operate-failures">Looking back at what rejected</h3>
+
+  <p>The <strong>Failures</strong> screen lists every reject the station still has pictures for, newest first. This is where you go at the end of a shift, or when a supervisor asks what has been coming off the line. Filters at the top narrow the list by how recently it happened, what state it is in, and words in the reason.</p>
+
+  {{FIGURE:failure-review|The Failures screen. Filters across the top, the queue in the middle, and the actions along the bottom. The counts beside the title say how many are waiting.}}
+
+  <p>Select a row and press <code>OPEN</code> to see that part exactly as it looked when it ran &mdash; the same terminal cards, the same close-up pictures. <code>BACK</code> returns you to the list.</p>
+
+  <p>Each reject carries a state so nobody re-reads the same ones every shift:</p>
+  <ul>
+    <li><strong>NEW</strong> &mdash; nobody has looked at it yet.</li>
+    <li><strong>REVIEWED</strong> &mdash; somebody looked. The screen records who and when.</li>
+    <li><strong>SENT TO TRAINING</strong> &mdash; its pictures were added to the ML training set.</li>
+  </ul>
+
+  <p>Four buttons act on whatever rows you have selected:</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Button</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>KEEP</code> / <code>RELEASE</code></td><td>Stops the station deleting this reject when the disk fills up or it gets old. Use it on anything you are still working on.</td></tr>
+        <tr><td><code>ADD TO ML TRAINING</code></td><td>Adds this part's terminal pictures to the training set. See below.</td></tr>
+        <tr><td><code>EXPORT SELECTED</code></td><td>Saves the rejects and their pictures as one ZIP file to hand to quality.</td></tr>
+        <tr><td><code>CLEAR SELECTED</code></td><td>Deletes them for good. It asks first, and it tells you if any are being kept or have never been exported.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note care">
+    <span class="tag">Say what is really on the battery</span>
+    <p>When you add a reject to ML training the station asks what is <strong>actually stamped</strong> on each terminal. Nothing is filled in for you, and the station's own reading is shown only so you can see what it thought.</p>
+    <p>This matters. The part rejected, so the station may have read it wrongly &mdash; that is often the exact reason it is worth training on. If you just agreed with whatever the station said, you would be teaching it to keep making the same mistake. Look at the battery in your hand and choose what you see.</p>
+    <p>A part that is genuinely bad is still worth adding. Label it with what is really stamped on it.</p>
+  </div>
+
+  <p>Clearing only ever deletes reject pictures. It cannot touch recipes, reference pictures, validation records, training pictures, or the model, whatever is selected. Nothing happens if no rows are selected &mdash; it never clears the whole list on its own.</p>
 
   <h3 id="operate-bypass">Bypass</h3>
   <p>Bypass is the amber button on the Overview screen. Turning it on tells the PLC that the inspection result is not allowed to stop the line.</p>
@@ -1186,7 +1223,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position station handbook, Rev D, for application v0.30.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
+  <p><strong>Pole Position station handbook, Rev E, for application v0.31.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
   <p>This document is an unapproved draft. It does not replace your site's approved user manual, and it is not a controlled record until your quality process makes it one. Where this handbook and the station's own behaviour disagree, the station is right and this document needs correcting.</p>
 </footer>
 

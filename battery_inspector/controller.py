@@ -17,8 +17,11 @@ from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 from battery_inspector.activity import ActivityTracker
 from battery_inspector.config import AppConfig, CameraConfig, merge_config
 from battery_inspector.data import RecipeRepository
+from battery_inspector.data.repository import REVIEW_REVIEWED
 from battery_inspector.evidence import (
     prune_staged_captures,
+    reference_capture_from_file,
+    remove_failure_evidence,
     FailureRetentionPolicy,
     persist_recipe_reference,
     persist_recipe_validation_records,
@@ -58,6 +61,7 @@ from battery_inspector.services import (
 )
 from battery_inspector.services.workers import ServiceTask
 from battery_inspector.package_transfer import (
+    export_failure_package,
     export_model_package,
     export_recipe_package,
     import_model_package,
@@ -81,6 +85,8 @@ LIGHTING_HEALTH_UNMONITORED = {"ok": True, "text": "NOT MONITORED"}
 class AppController(QObject):
     inspection_updated = Signal(object)
     recipes_changed = Signal(object)
+    # Retained failures, or their triage state, changed. The review page reloads.
+    failures_changed = Signal()
     active_recipe_changed = Signal(object)
     health_changed = Signal(object)
     counts_changed = Signal(object)
@@ -791,6 +797,206 @@ class AppController(QObject):
         )
         return info
 
+    # --- reviewing what rejected --------------------------------------------
+
+    def list_failures(self, **filters: Any) -> list[dict[str, Any]]:
+        """Retained non-PASS records, newest first. See RecipeRepository."""
+
+        return self.repository.list_failures(**filters)
+
+    def failure_counts(self) -> dict[str, int]:
+        return self.repository.failure_counts()
+
+    def mark_failures_reviewed(self, inspection_ids: list[str]) -> int:
+        changed = self.repository.set_failure_review_state(
+            inspection_ids,
+            REVIEW_REVIEWED,
+            username=self.config.operator_name,
+        )
+        if changed:
+            self._add_event(
+                "FAILURE_REVIEW",
+                f"Marked {changed} failure(s) reviewed",
+                details={"inspection_ids": list(inspection_ids)},
+            )
+            self.failures_changed.emit()
+        return changed
+
+    def set_failures_kept(self, inspection_ids: list[str], keep: bool) -> int:
+        """Hold a failure back from retention, or release it.
+
+        A kept record survives the age and capacity passes. The interesting
+        failure is usually the one somebody is still working on, and it was
+        also the one most likely to age out before they got to it.
+        """
+
+        changed = self.repository.set_failure_keep(inspection_ids, keep)
+        if changed:
+            self._add_event(
+                "FAILURE_REVIEW",
+                f"{'Held' if keep else 'Released'} {changed} failure(s) "
+                f"{'from' if keep else 'to'} evidence retention",
+                details={"inspection_ids": list(inspection_ids), "keep": keep},
+            )
+            self.failures_changed.emit()
+        return changed
+
+    def export_failures(
+        self,
+        records: list[dict[str, Any]],
+        destination: Path,
+        *,
+        description: str = "",
+    ) -> dict[str, Any]:
+        """Write selected failures, with their evidence, as one checksummed ZIP."""
+
+        result = export_failure_package(
+            records=records,
+            destination=Path(destination),
+            station_name=self.config.operator_name,
+            description=description,
+        )
+        identifiers = [str(item.get("inspection_id", "")) for item in records]
+        self.repository.mark_failures_exported([item for item in identifiers if item])
+        manifest = result.get("manifest", {})
+        self._add_event(
+            "FAILURE_REVIEW",
+            f"Exported {manifest.get('record_count', 0)} failure(s) for review",
+            details={
+                "destination": str(result.get("path", "")),
+                "evidence_missing": manifest.get("evidence_missing", []),
+            },
+        )
+        self.failures_changed.emit()
+        return result
+
+    def send_failure_to_training(
+        self,
+        record: dict[str, Any],
+        labels: dict[str, str],
+    ) -> dict[str, Any]:
+        """Add a failure's terminal crops to the ML training set.
+
+        ``labels`` maps a terminal key to the class the technician says is
+        actually stamped on that terminal. The detected class is never used as a
+        default anywhere in this path: a rejected part is exactly the case where
+        the model may have been wrong, and defaulting to what it said would
+        train it on its own mistakes.
+
+        The crop is taken from the stored full-resolution frame using the
+        terminal polygon recorded for that cycle, then re-cropped by the same
+        ``ml_input_crop`` contract a live capture uses, so a sample added here
+        is indistinguishable from one captured on the ML Training page.
+        """
+
+        if self.busy:
+            raise ValueError("Wait until the station is idle before adding training samples.")
+        payload = dict(record.get("payload") or {})
+        frame_path = Path(str(payload.get("full_image_path", "") or ""))
+        if not frame_path.is_file():
+            raise ValueError(
+                "The full-resolution frame for this failure is no longer on the "
+                "station, so no training crop can be taken from it."
+            )
+        terminals = {
+            str(item.get("terminal_key", "")): item
+            for item in payload.get("terminals", [])
+            if isinstance(item, dict)
+        }
+        items: list[tuple[str, NormalizedRect, str]] = []
+        for terminal_key, label in labels.items():
+            if not str(label or "").strip():
+                continue
+            terminal = terminals.get(terminal_key)
+            if terminal is None:
+                continue
+            polygon = [tuple(point) for point in terminal.get("terminal_polygon", [])]
+            if len(polygon) < 3:
+                raise ValueError(
+                    f"{terminal_key} has no recorded terminal outline for this cycle, "
+                    "so a training crop cannot be located in the stored frame."
+                )
+            xs = [float(point[0]) for point in polygon]
+            ys = [float(point[1]) for point in polygon]
+            rect = NormalizedRect(
+                min(xs),
+                min(ys),
+                max(1e-3, max(xs) - min(xs)),
+                max(1e-3, max(ys) - min(ys)),
+            ).clamped()
+            items.append((terminal_key, rect, str(label).strip().lower()))
+
+        if not items:
+            raise ValueError("Choose the true class for at least one terminal.")
+
+        capture = reference_capture_from_file(
+            frame_path,
+            source="FAILURE_REVIEW",
+            camera_backend=str(payload.get("camera_backend", "")),
+            camera_description=str(payload.get("camera_description", "")),
+        )
+        saved = self.ml_training_store.save_samples(
+            capture,
+            items,
+            collection_tag=f"failure_review:{record.get('inspection_id', '')}",
+        )
+        inspection_id = str(record.get("inspection_id", ""))
+        if inspection_id:
+            self.repository.mark_failures_trained(
+                [inspection_id],
+                username=self.config.operator_name,
+            )
+        added = sum(1 for _sample, duplicate in saved if not duplicate)
+        duplicates = len(saved) - added
+        self._add_event(
+            "ML_TRAINING",
+            f"Added {added} training sample(s) from rejected part {inspection_id}"
+            + (f" ({duplicates} already present)" if duplicates else ""),
+            details={
+                "inspection_id": inspection_id,
+                "labels": dict(labels),
+                "duplicates": duplicates,
+            },
+        )
+        self.failures_changed.emit()
+        return {"added": added, "duplicates": duplicates, "samples": saved}
+
+    def clear_failures(self, records: list[dict[str, Any]]) -> dict[str, Any]:
+        """Delete the evidence for the given failures, and their rows.
+
+        Deletion is scoped by ``remove_failure_evidence``, which only removes a
+        two-level production cycle directory carrying a non-PASS manifest. A
+        path that is not one -- a recipe reference, validation evidence, a model
+        -- cannot be removed through here whatever is passed.
+        """
+
+        if self.busy:
+            raise ValueError("Wait until the station is idle before clearing evidence.")
+        directories = [
+            str(item.get("evidence_directory", "") or "")
+            for item in records
+            if str(item.get("evidence_directory", "") or "")
+        ]
+        summary = remove_failure_evidence(
+            self.data_directory / "inspections",
+            directories,
+        )
+        identifiers = [
+            str(item.get("inspection_id", ""))
+            for item in records
+            if str(item.get("inspection_id", ""))
+        ]
+        summary["rows_removed"] = self.repository.delete_failures(identifiers)
+        self._add_event(
+            "FAILURE_REVIEW",
+            f"Cleared {summary['rows_removed']} failure record(s) and "
+            f"{summary['removed']} evidence folder(s), "
+            f"reclaiming {summary['bytes_removed'] / 1024 / 1024:.1f} MB",
+            details=dict(summary),
+        )
+        self.failures_changed.emit()
+        return summary
+
     # --- moving one model or one recipe between stations --------------------
 
     def export_model_package(self, destination: Path) -> dict[str, Any]:
@@ -1138,7 +1344,9 @@ class AppController(QObject):
 
         # Retention can inspect many evidence files, so run it in the existing
         # startup worker rather than blocking construction of the Qt window.
-        self.pipeline.apply_failure_retention()
+        self.pipeline.apply_failure_retention(
+            self.repository.protected_evidence_directories()
+        )
         self._prune_staged_captures()
 
         try:
@@ -2808,6 +3016,10 @@ class AppController(QObject):
             self.recent_results.append(result.passed)
         if not result.passed:
             self.repository.save_inspection(result.to_dict())
+            # A new reject joins the review queue immediately: the page can be
+            # open on the station while the line runs, and a queue that only
+            # updated when somebody pressed REFRESH would quietly go stale.
+            self.failures_changed.emit()
         self.inspection_updated.emit(result)
         self.counts_changed.emit(self.counts_payload())
         self._recalculate_system_health()
@@ -2986,7 +3198,12 @@ class AppController(QObject):
         self.pipeline.set_failure_retention_policy(
             self._failure_retention_policy(self.config)
         )
-        self.thread_pool.start(ServiceTask(self.pipeline.apply_failure_retention))
+        self.thread_pool.start(
+            ServiceTask(
+                self.pipeline.apply_failure_retention,
+                self.repository.protected_evidence_directories(),
+            )
+        )
         self.plc_poll_timer.setInterval(self.config.plc_poll_ms)
         self.plc_heartbeat_timer.setInterval(self.config.plc_heartbeat_ms)
         self.config.save(self.config_path)

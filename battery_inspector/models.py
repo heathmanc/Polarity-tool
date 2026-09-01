@@ -929,6 +929,56 @@ class TerminalInspection:
         }
 
 
+def _terminal_inspection_from_dict(data: dict[str, Any]) -> "TerminalInspection":
+    """Rebuild a stored terminal result for review.
+
+    Mirrors ``TerminalInspection.to_dict``. The derived keys it writes --
+    ``passed``, ``marking_pass`` and the rest -- are deliberately ignored:
+    they are properties computed from the fields, so reading them back would
+    let a hand-edited record claim an outcome its own data does not support.
+    """
+
+    return TerminalInspection(
+        terminal_key=str(data.get("terminal_key", "")),
+        terminal_name=str(data.get("terminal_name", "")),
+        role=TerminalRole(str(data.get("role", TerminalRole.NEGATIVE.value))),
+        expected_marking=Marking(str(data.get("expected_marking", Marking.UNREADABLE.value))),
+        detected_marking=Marking(str(data.get("detected_marking", Marking.UNREADABLE.value))),
+        marking_confidence=float(data.get("marking_confidence", 0.0) or 0.0),
+        red_ring_expected=bool(data.get("red_ring_expected", False)),
+        red_ring_detected=bool(data.get("red_ring_detected", False)),
+        red_ring_confidence=float(data.get("red_ring_confidence", 0.0) or 0.0),
+        expected_finish=TerminalFinish(
+            str(data.get("expected_finish", TerminalFinish.UNSPECIFIED.value))
+        ),
+        detected_finish=TerminalFinish(
+            str(data.get("detected_finish", TerminalFinish.UNSPECIFIED.value))
+        ),
+        finish_confidence=float(data.get("finish_confidence", 0.0) or 0.0),
+        finish_evaluated=bool(data.get("finish_evaluated", False)),
+        finish_status=str(data.get("finish_status", "")),
+        finish_note=str(data.get("finish_note", "")),
+        finish_metrics=dict(data.get("finish_metrics") or {}),
+        terminal_crop_path=data.get("terminal_crop_path"),
+        marking_crop_path=data.get("marking_crop_path"),
+        marking_evaluated=bool(data.get("marking_evaluated", True)),
+        ring_evaluated=bool(data.get("ring_evaluated", True)),
+        analysis_note=str(data.get("analysis_note", "")),
+        reference_marking_path=data.get("reference_marking_path"),
+        reference_similarity=float(data.get("reference_similarity", 0.0) or 0.0),
+        class_scores=dict(data.get("class_scores") or {}),
+        classification_metrics=dict(data.get("classification_metrics") or {}),
+        classification_status=str(data.get("classification_status", "")),
+        diagnostic_image_paths=dict(data.get("diagnostic_image_paths") or {}),
+        terminal_polygon=[tuple(point) for point in data.get("terminal_polygon", [])],
+        marking_polygon=[tuple(point) for point in data.get("marking_polygon", [])],
+        terminal_face_evaluated=bool(data.get("terminal_face_evaluated", True)),
+        terminal_face_present=bool(data.get("terminal_face_present", True)),
+        terminal_face_confidence=float(data.get("terminal_face_confidence", 1.0) or 0.0),
+        terminal_face_status=str(data.get("terminal_face_status", "")),
+    )
+
+
 @dataclass(slots=True)
 class InspectionResult:
     inspection_id: str
@@ -1113,3 +1163,63 @@ class InspectionResult:
             "battery_polygon": [list(point) for point in self.battery_polygon],
             "locator_metrics": dict(self.locator_metrics),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "InspectionResult":
+        """Rebuild a stored result so it can be reviewed after the fact.
+
+        Runtime-only imagery is not restored: a stored record carries file
+        paths, and the in-memory buffers exist only so a PASS can be displayed
+        without writing anything. Everything the detail view renders comes from
+        the paths.
+        """
+
+        return cls(
+            inspection_id=str(data.get("inspection_id", "")),
+            recipe_id=str(data.get("recipe_id", "")),
+            recipe_name=str(data.get("recipe_name", "")),
+            timestamp_utc=str(data.get("timestamp_utc", "")),
+            disposition=InspectionDisposition(
+                str(data.get("disposition", InspectionDisposition.REJECT.value))
+            ),
+            reason=str(data.get("reason", "")),
+            duration_ms=int(data.get("duration_ms", 0) or 0),
+            trigger_source=str(data.get("trigger_source", "")),
+            image_quality=str(data.get("image_quality", "")),
+            full_image_path=str(data.get("full_image_path", "")),
+            # A record whose geometry is missing is still evidence that a part
+            # rejected, and the review page must be able to show it. Fall back
+            # to the whole frame rather than refusing to rebuild the record.
+            battery_roi=(
+                NormalizedRect.from_dict(data["battery_roi"])
+                if isinstance(data.get("battery_roi"), dict)
+                else NormalizedRect(0.0, 0.0, 1.0, 1.0)
+            ),
+            terminals=[
+                _terminal_inspection_from_dict(item)
+                for item in data.get("terminals", [])
+                if isinstance(item, dict)
+            ],
+            cycle_id=str(data.get("cycle_id", "")),
+            capture_id=str(data.get("capture_id", "")),
+            frame_id=str(data.get("frame_id", "")),
+            frame_sequence=int(data.get("frame_sequence", 0) or 0),
+            captured_at_utc=str(data.get("captured_at_utc", "")),
+            camera_frame_id=str(data.get("camera_frame_id", "")),
+            camera_timestamp_raw=data.get("camera_timestamp_raw"),
+            frame_width=int(data.get("frame_width", 0) or 0),
+            frame_height=int(data.get("frame_height", 0) or 0),
+            frame_channels=int(data.get("frame_channels", 0) or 0),
+            camera_backend=str(data.get("camera_backend", "")),
+            camera_description=str(data.get("camera_description", "")),
+            evidence_directory=str(data.get("evidence_directory", "")),
+            manifest_path=str(data.get("manifest_path", "")),
+            analysis_ready=bool(data.get("analysis_ready", False)),
+            readiness_issues=[str(item) for item in data.get("readiness_issues", [])],
+            locator_status=str(data.get("locator_status", "")),
+            classifier_status=str(data.get("classifier_status", "")),
+            aligned_battery_path=str(data.get("aligned_battery_path", "")),
+            reference_battery_path=str(data.get("reference_battery_path", "")),
+            battery_polygon=[tuple(point) for point in data.get("battery_polygon", [])],
+            locator_metrics=dict(data.get("locator_metrics") or {}),
+        )

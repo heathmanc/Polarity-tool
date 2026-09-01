@@ -94,6 +94,10 @@ def capture(output: Path) -> int:
         window = MainWindow(controller)
         try:
             window.resize(*CAPTURE_SIZE)
+            # ML Training and Settings sit behind the maintenance passcode, and
+            # a prompt nobody can answer hangs a headless capture forever. The
+            # manual documents both screens, so unlock them up front.
+            window.unlock_maintenance_screens()
             window.show()
             controller.initialize()
             settle(application)
@@ -152,6 +156,11 @@ def capture(output: Path) -> int:
                     for index, name in (
                         (MainWindow.OVERVIEW, "overview-reject"),
                         (MainWindow.INSPECTION, "inspection-detail-reject"),
+                        # Captured here rather than with the other pages: the
+                        # review queue is only worth photographing once the
+                        # station has actually rejected something, and an empty
+                        # queue teaches an operator nothing.
+                        (MainWindow.FAILURES, "failure-review"),
                     ):
                         window.navigate(index)
                         settle(application)
