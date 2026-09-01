@@ -49,6 +49,9 @@ class MainWindow(QMainWindow):
         # True while the detail view is showing a retained failure rather than
         # the live result, so BACK returns to the review queue.
         self._returning_to_failures = False
+        # The recipe geometry the live detail view draws with, kept so it can be
+        # restored after a historical record has been displayed without it.
+        self._live_recipe_terminals: list = []
         self._cycle_status = controller.cycle_status
         self.setWindowTitle("Pole Position — Battery Polarity Inspection")
         self.setWindowIcon(QIcon(str(controller.assets_directory / "app_icon.png")))
@@ -361,9 +364,12 @@ class MainWindow(QMainWindow):
         """
 
         self._returning_to_failures = True
-        self.inspection_page.set_recipe(
-            [terminal for terminal in getattr(result, "terminals", [])]
-        )
+        # No recipe geometry for a historical record. The stored result names
+        # the recipe but not the revision that graded it, so drawing a marking
+        # ROI from whatever revision exists now could put a rectangle from one
+        # revision over a crop taken under another. The stored crops already
+        # show what was analyzed; the overlay is the part we cannot vouch for.
+        self.inspection_page.set_recipe([])
         self.inspection_page.set_inspection(result)
         self.navigate(self.INSPECTION)
 
@@ -372,8 +378,10 @@ class MainWindow(QMainWindow):
 
         if getattr(self, "_returning_to_failures", False):
             self._returning_to_failures = False
+            # Put the live recipe geometry and result back, in that order, so
+            # the next live result is drawn with its overlays again.
+            self.inspection_page.set_recipe(self._live_recipe_terminals)
             if self._last_inspection is not None:
-                # Put the live result back so the next live BACK is coherent.
                 self.inspection_page.set_inspection(self._last_inspection)
             self.navigate(self.FAILURES)
             return
@@ -388,6 +396,7 @@ class MainWindow(QMainWindow):
             recipe.battery_roi,
             recipe.terminals,
         )
+        self._live_recipe_terminals = list(recipe.terminals)
         self.inspection_page.set_recipe(recipe.terminals)
 
     def set_inspection(self, result: InspectionResult) -> None:

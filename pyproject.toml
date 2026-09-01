@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pole-position-hmi"
-version = "0.31.0"
+version = "0.31.1"
 description = "Pole Position — ISA-101-aligned configurable battery inspection HMI"
 readme = "README.md"
 requires-python = ">=3.11"

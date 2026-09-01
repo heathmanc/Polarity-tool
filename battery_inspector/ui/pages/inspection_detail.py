@@ -150,8 +150,17 @@ class TerminalResultCard(PanelFrame):
         self.raw_crop_button.setChecked(index == 0)
         self.analysis_crop_button.setChecked(index == 1)
 
-    def set_recipe(self, recipe: TerminalRecipe) -> None:
-        self._recipe = recipe
+    def set_recipe(self, recipe: TerminalRecipe | None) -> None:
+        """Give the card the recipe geometry used to draw the marking overlay.
+
+        Anything that is not a TerminalRecipe is stored as None rather than
+        kept. The overlay is decoration; the expected/detected text beside it is
+        the result. A caller that passes the wrong object -- a TerminalInspection
+        looks similar enough to be passed by mistake -- must lose a rectangle,
+        not take down the screen that explains why a part rejected.
+        """
+
+        self._recipe = recipe if isinstance(recipe, TerminalRecipe) else None
 
     @staticmethod
     def _existing_path(value: str | None) -> Path | None:

@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.31.0** source
+This README is the current project and handoff guide for the **v0.31.1** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.31.0` |
-| Release tag | `v0.31.0` |
+| Application version | `0.31.1` |
+| Release tag | `v0.31.1` |
 | Tagged commit | `b5ca25203fcfe4a85f3b3928bde05260d0886f54` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -374,7 +374,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.31.0-Setup-x64.exe
+Pole-Position-v0.31.1-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -1168,9 +1168,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.31.0-Setup-x64.exe
-dist\windows\Pole-Position-v0.31.0-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.31.0-requirements-lock.txt
+dist\windows\Pole-Position-v0.31.1-Setup-x64.exe
+dist\windows\Pole-Position-v0.31.1-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.31.1-requirements-lock.txt
 ```
 
 The build:
@@ -1504,6 +1504,7 @@ this README, current source, or current subsystem documents.
 | v0.29.0 | Recipe source is a station setting and a blank selector is refused, not defaulted; triggered-snapshot acquisition; one selector value names exactly one recipe |
 | v0.30.0 | ML model package and full recipe package transfers between stations |
 | v0.31.0 | Failure Review: triage, keep-from-retention, technician-labelled crops to ML training, export, clear |
+| v0.31.1 | Fixed OPEN doing nothing on Failure Review |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1539,7 +1540,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.31.0 installer, `.sha256`, and requirements lock
+- [ ] v0.31.1 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

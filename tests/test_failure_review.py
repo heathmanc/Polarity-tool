@@ -26,6 +26,8 @@ from battery_inspector.evidence import (
     apply_failure_retention,
     remove_failure_evidence,
 )
+from battery_inspector.models import Marking
+from conftest import ROOT, drain
 from battery_inspector.data.repository import (
     REVIEW_NEW,
     REVIEW_REVIEWED,
@@ -484,3 +486,100 @@ def test_the_label_dialog_preselects_nothing(qapp, controller, tmp_path) -> None
     dialog = page.build_label_dialog(record)
 
     assert dialog.labels() == {}
+
+
+# --- opening a real record end to end ---------------------------------------
+
+
+def test_a_real_reject_opens_in_the_detail_view(qapp, controller) -> None:
+    """The whole path, on a payload the pipeline actually produced.
+
+    The earlier test asserted only that the page emits the record. That passed
+    while OPEN did nothing on a real station: the main window handed the detail
+    card a TerminalInspection where it expected a TerminalRecipe, the card
+    raised reading recipe-only geometry, and the exception left the screen on
+    the queue with no message. A hand-built payload missed it because the crash
+    is in the branch that only runs when the stored crop files exist.
+    """
+
+    from battery_inspector.ui import MainWindow
+
+    reversed_part = ROOT / "battery_inspector" / "assets" / "demo_battery.jpg"
+    controller.camera.image_path = reversed_part
+    controller.run_inspection("MANUAL")
+    drain(qapp)
+    recorded = controller.last_inspection
+    assert recorded is not None
+    # Whatever this fixture's station can produce, as long as it is retained:
+    # a reject when the recipe is ready, a fault when it is not. Both are rows
+    # in the queue, and both must open.
+    assert not recorded.passed
+
+    window = MainWindow(controller)
+    window.unlock_maintenance_screens()
+    window.navigate(MainWindow.FAILURES)
+    qapp.processEvents()
+    page = window.failure_review_page
+    assert page.table.rowCount() >= 1
+
+    page.table.selectRow(0)
+    page.open_selected()
+    qapp.processEvents()
+
+    assert window.stack.currentIndex() == MainWindow.INSPECTION
+    assert window.inspection_page.summary.text() == recorded.disposition.display
+    assert window.inspection_page.reason.text() == recorded.reason
+    assert page.status.text() == ""
+
+
+def test_leaving_a_reviewed_record_restores_the_live_view(qapp, controller) -> None:
+    """Reviewing history must not leave the live screen without its overlays."""
+
+    from battery_inspector.ui import MainWindow
+
+    controller.camera.image_path = ROOT / "battery_inspector" / "assets" / "demo_battery.jpg"
+    controller.run_inspection("MANUAL")
+    drain(qapp)
+
+    window = MainWindow(controller)
+    window.unlock_maintenance_screens()
+    if controller.active_recipe is not None:
+        window.set_active_recipe(controller.active_recipe)
+    live_geometry = list(window._live_recipe_terminals)
+
+    window.navigate(MainWindow.FAILURES)
+    qapp.processEvents()
+    window.failure_review_page.table.selectRow(0)
+    window.failure_review_page.open_selected()
+    qapp.processEvents()
+    window.inspection_page.back_requested.emit()
+    qapp.processEvents()
+
+    assert window.stack.currentIndex() == MainWindow.FAILURES
+    assert window._live_recipe_terminals == live_geometry
+    if live_geometry:
+        assert window.inspection_page.cards[0]._recipe is live_geometry[0]
+
+
+def test_a_card_refuses_geometry_that_is_not_a_recipe(qapp) -> None:
+    """The guard that turns a wrong argument into a missing rectangle."""
+
+    from battery_inspector.models import TerminalInspection, TerminalRole
+    from battery_inspector.ui.pages.inspection_detail import TerminalResultCard
+
+    card = TerminalResultCard()
+    card.set_recipe(
+        TerminalInspection(
+            terminal_key="negative",
+            terminal_name="Negative Terminal",
+            role=TerminalRole.NEGATIVE,
+            expected_marking=Marking.MINUS,
+            detected_marking=Marking.PLUS,
+            marking_confidence=0.5,
+            red_ring_expected=False,
+            red_ring_detected=False,
+            red_ring_confidence=0.0,
+        )
+    )
+
+    assert card._recipe is None
