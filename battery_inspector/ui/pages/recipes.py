@@ -374,7 +374,14 @@ class RecipesPage(QWidget):
             parent=self,
         )
         wizard.recipe_ready.connect(self._recipe_saved_from_wizard)
-        wizard.exec()
+        # Busy is held high on the PLC for as long as the wizard is open, and
+        # the release is in a finally: a wizard that closes on an exception must
+        # not leave the controller looking at a station that is busy forever.
+        self.controller.begin_recipe_session()
+        try:
+            wizard.exec()
+        finally:
+            self.controller.end_recipe_session()
 
     def open_new_recipe_wizard(self) -> None:
         self._open_wizard(initial_reference_action="choose")

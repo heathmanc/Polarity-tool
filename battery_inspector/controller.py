@@ -235,6 +235,13 @@ class AppController(QObject):
         self._ml_training_capture_in_flight = False
         self._ml_training_in_flight = False
         self._station_transfer_in_flight = False
+        # True from the moment a recipe is opened for editing or training until
+        # it is closed. A technician is at the fixture with parts in their hand
+        # for all of that time, not just while a capture is running.
+        self._recipe_session_active = False
+        # One log line per session about a controller that triggered anyway,
+        # rather than one per poll.
+        self._recipe_session_trigger_reported = False
         self.plc_poll_timer = QTimer(self)
         self.plc_poll_timer.setInterval(self.config.plc_poll_ms)
         self.plc_poll_timer.timeout.connect(self._poll_plc)
@@ -244,6 +251,16 @@ class AppController(QObject):
         self.camera_preview_timer = QTimer(self)
         self.camera_preview_timer.setInterval(self.CAMERA_PREVIEW_INTERVAL_MS)
         self.camera_preview_timer.timeout.connect(self._camera_preview_tick)
+        # Automatic reconnection after a lost PLC connection. Single-shot and
+        # rescheduled with backoff, so a controller that is down for an hour
+        # costs one attempt every PLC_RECONNECT_MAX_MS rather than a tight loop.
+        self.plc_reconnect_timer = QTimer(self)
+        self.plc_reconnect_timer.setSingleShot(True)
+        self.plc_reconnect_timer.timeout.connect(self._attempt_plc_reconnect)
+        self._plc_reconnect_delay_ms = 0
+        self._plc_reconnect_attempts = 0
+        self._plc_reconnect_in_flight = False
+        self._plc_reconnect_reported = False
 
     def create_workstation_backup(self, destination: Path) -> bool:
         """Create a portable station ZIP without blocking the HMI thread."""
@@ -796,6 +813,74 @@ class AppController(QObject):
             details={"model": str(target_model), "manifest": str(target_manifest)},
         )
         return info
+
+    # --- a technician has the station -----------------------------------------
+
+    @property
+    def recipe_session_active(self) -> bool:
+        return self._recipe_session_active
+
+    def begin_recipe_session(self) -> None:
+        """Tell the PLC the station is occupied, for as long as a recipe is open.
+
+        Busy used to mean only "an inspection cycle is running", which left the
+        whole of recipe editing and validation invisible on the wire: readiness
+        dropped for the fraction of a second a sample was being taken and came
+        straight back, so a controller watching Ready AND NOT Busy saw a station
+        that looked available between samples. It is not available. Somebody is
+        standing at the fixture placing parts by hand.
+
+        So Busy is held high for the entire session and Ready is false
+        throughout, giving the controller one unambiguous interlock.
+        """
+
+        if self._recipe_session_active:
+            return
+        self._recipe_session_active = True
+        self._recipe_session_trigger_reported = False
+        self._publish_plc_ready()
+        self._assert_recipe_session_busy()
+        self._add_event(
+            "RECIPE",
+            "Recipe opened for editing; PLC Busy held high until it is closed",
+        )
+
+    def end_recipe_session(self) -> None:
+        """Release the station. Busy returns low and readiness is republished."""
+
+        if not self._recipe_session_active:
+            return
+        self._recipe_session_active = False
+        if self.plc.connected:
+            try:
+                self.plc.clear_result()
+            except Exception as exc:  # noqa: BLE001
+                self._add_event(
+                    "PLC",
+                    f"Could not clear Busy after the recipe was closed: {exc}",
+                )
+            else:
+                self._plc_result_outstanding = False
+                self._emit_plc_simulation_state()
+        self._publish_plc_ready()
+        self._add_event("RECIPE", "Recipe closed; PLC Busy released")
+
+    def _assert_recipe_session_busy(self) -> None:
+        """Write Busy high for an open recipe session.
+
+        Called when the session opens and again whenever the PLC connection is
+        re-established, because a controller that dropped and came back has no
+        memory of what it was told before.
+        """
+
+        if not self._recipe_session_active or not self.plc.connected:
+            return
+        try:
+            self.plc.publish_result(passed=False, busy=True)
+        except Exception as exc:  # noqa: BLE001
+            self._add_event("PLC", f"Could not hold Busy for the open recipe: {exc}")
+            return
+        self._emit_plc_simulation_state()
 
     # --- reviewing what rejected --------------------------------------------
 
@@ -1578,6 +1663,7 @@ class AppController(QObject):
         # longer holds the camera. Forced, because the controller has been told
         # nothing yet and must not be left inferring readiness from silence.
         self._publish_plc_ready(force=True)
+        self._assert_recipe_session_busy()
         self._resume_queued_work()
 
     def discover_camera_hardware(self) -> bool:
@@ -1913,6 +1999,10 @@ class AppController(QObject):
         """
 
         if not self.camera.connected:
+            return False
+        if self._recipe_session_active:
+            # A recipe is open. The station is not available for the whole of
+            # that session, however idle it looks between captures.
             return False
         # Readiness follows the product the controller is currently naming. If
         # it is naming one this station cannot run -- unknown number, or no
@@ -2397,6 +2487,9 @@ class AppController(QObject):
 
         if self._plc_operation_in_flight:
             return False
+        # A technician applying settings supersedes any pending automatic
+        # reconnection, and their attempt starts the backoff from scratch.
+        self.cancel_plc_reconnect()
         self.plc_poll_timer.stop()
         self.plc_heartbeat_timer.stop()
         self._pending_plc_configuration = updated_configuration.normalized()
@@ -2550,6 +2643,7 @@ class AppController(QObject):
         self._end_activity("plc")
         # A replacement service, or a changed tag map, has been told nothing.
         self._publish_plc_ready(force=True)
+        self._assert_recipe_session_busy()
         self._resume_queued_work()
 
     def _set_plc_operation_busy(self, busy: bool) -> None:
@@ -2586,6 +2680,19 @@ class AppController(QObject):
             # Preserve one pending PLC cycle; manual requests remain explicit.
             if source == "PLC":
                 self._pending_inspection_trigger_source = source
+            return False
+
+        if source == "PLC" and self._recipe_session_active:
+            # Busy has been high for the whole session, so a trigger arriving
+            # now is the controller ignoring its own interlock. Refuse rather
+            # than grading a part a technician is holding.
+            if not self._recipe_session_trigger_reported:
+                self._add_event(
+                    "PLC",
+                    "PLC triggered while a recipe was open for editing. The trigger "
+                    "was refused; Busy is held high for the whole session.",
+                )
+                self._recipe_session_trigger_reported = True
             return False
 
         # The recipe this trigger resolved to, not the station's selection: for
@@ -2888,15 +2995,133 @@ class AppController(QObject):
             self._start_plc_settings_task()
 
     def _plc_poll_failed(self, message: str) -> None:
-        # Stop repeated fault logging. A successful Apply & Test PLC or explicit
-        # switch to Simulation reconnects and resumes polling.
+        # Stop repeated fault logging. Polling resumes when a reconnection
+        # attempt succeeds, or on an explicit Apply & Test PLC.
         self.plc_poll_timer.stop()
         self.plc_heartbeat_timer.stop()
         self._bypass_known = False
         self.health["plc"] = {"ok": False, "text": "FAULT"}
         self._recalculate_system_health()
         self.health_changed.emit(self.health)
-        self._add_event("PLC", f"PLC polling stopped: {message}")
+        if not self._plc_reconnect_reported:
+            self._add_event("PLC", f"PLC polling stopped: {message}")
+            self._plc_reconnect_reported = True
+        self._schedule_plc_reconnect()
+
+    # --- getting the PLC back -------------------------------------------------
+    #
+    # A lost connection used to be terminal: both timers stopped, the station
+    # went to FAULT, and nothing tried again until a technician walked to the
+    # HMI and pressed APPLY & TEST. A switch reboot, a controller download, or a
+    # cable knocked at shift change took the station out for as long as it took
+    # somebody to notice.
+    #
+    # "Never falls back to Simulation" and "never retries" are not the same
+    # rule. Reconnection re-establishes the *configured* backend and nothing
+    # else: the mode never changes, the station stays FAULT and Ready stays
+    # false until a real read succeeds, and the heartbeat stays stopped while
+    # disconnected so the controller's own watchdog still sees a dead HMI.
+
+    PLC_RECONNECT_FIRST_MS = 2_000
+    PLC_RECONNECT_MAX_MS = 30_000
+
+    def _schedule_plc_reconnect(self) -> None:
+        if self._plc_backend_is_simulated():
+            # A simulated PLC cannot lose a connection it never had over a wire,
+            # and retrying one hides a genuine defect behind a retry loop.
+            return
+        if self._plc_reconnect_in_flight or self.plc_reconnect_timer.isActive():
+            return
+        if self._plc_reconnect_delay_ms <= 0:
+            self._plc_reconnect_delay_ms = self.PLC_RECONNECT_FIRST_MS
+        else:
+            self._plc_reconnect_delay_ms = min(
+                self._plc_reconnect_delay_ms * 2,
+                self.PLC_RECONNECT_MAX_MS,
+            )
+        self.plc_reconnect_timer.start(self._plc_reconnect_delay_ms)
+
+    def _plc_backend_is_simulated(self) -> bool:
+        """Whether the station is running the simulated backend.
+
+        Read from the active backend rather than the service's class: which
+        mode the station is in is a configuration fact, and a test double or a
+        future driver that happens to share a base class is not evidence about
+        it either way.
+        """
+
+        return str(self.plc_backend_active or "").strip().lower() == "simulation"
+
+    def cancel_plc_reconnect(self) -> None:
+        """Stand down automatic reconnection, after a deliberate apply or test."""
+
+        self.plc_reconnect_timer.stop()
+        self._plc_reconnect_delay_ms = 0
+        self._plc_reconnect_attempts = 0
+        self._plc_reconnect_reported = False
+
+    def _attempt_plc_reconnect(self) -> None:
+        if self._plc_reconnect_in_flight or self._plc_operation_in_flight:
+            # A technician is applying PLC settings by hand. Theirs wins; try
+            # again afterwards only if it did not fix things.
+            self._schedule_plc_reconnect()
+            return
+        if self.plc.connected and self.plc_poll_timer.isActive():
+            self.cancel_plc_reconnect()
+            return
+        self._plc_reconnect_in_flight = True
+        self._plc_reconnect_attempts += 1
+        task = ServiceTask(self._reconnect_plc)
+        task.signals.completed.connect(self._plc_reconnect_succeeded)
+        task.signals.failed.connect(self._plc_reconnect_failed)
+        task.signals.finished.connect(self._plc_reconnect_finished)
+        self.thread_pool.start(task)
+
+    def _reconnect_plc(self) -> dict[str, Any]:
+        """Reopen the configured driver and prove it with one real read."""
+
+        try:
+            self.plc.disconnect()
+        except Exception:  # noqa: BLE001, S110 - the old handle is being discarded
+            # Nothing to log and nothing to do: this handle is already broken,
+            # which is why a reconnection is being attempted at all.
+            pass
+        self.plc.connect()
+        # Connecting is not evidence. A driver can open against a controller
+        # that will not answer for the tags this station uses, so the read is
+        # what decides whether the connection is usable.
+        return dict(self.plc.read_cycle_state())
+
+    def _plc_reconnect_succeeded(self, payload: object) -> None:
+        attempts = self._plc_reconnect_attempts
+        self.cancel_plc_reconnect()
+        self.health["plc"] = {"ok": True, "text": "OK"}
+        self._recalculate_system_health()
+        self.health_changed.emit(self.health)
+        if not self.plc_poll_timer.isActive():
+            self.plc_poll_timer.start()
+        if not self.plc_heartbeat_timer.isActive():
+            self.plc_heartbeat_timer.start()
+        self._heartbeat_fault_latched = False
+        # The controller has been told nothing since the connection dropped, and
+        # a reconnected one has no memory of what it was told before.
+        self._publish_plc_ready(force=True)
+        self._assert_recipe_session_busy()
+        self._add_event(
+            "PLC",
+            f"PLC connection re-established after {attempts} attempt(s); polling resumed",
+        )
+        self._handle_plc_state(payload)
+
+    def _plc_reconnect_failed(self, message: str) -> None:
+        # Deliberately not logged per attempt: the first failure is already in
+        # the audit trail, and a controller down overnight would otherwise write
+        # thousands of identical rows. The recovery is what gets logged.
+        del message
+        self._schedule_plc_reconnect()
+
+    def _plc_reconnect_finished(self) -> None:
+        self._plc_reconnect_in_flight = False
 
     def _handle_plc_state(self, payload: object) -> None:
         state = dict(payload)  # type: ignore[arg-type]
@@ -3254,6 +3479,7 @@ class AppController(QObject):
     def shutdown(self) -> None:
         self.plc_poll_timer.stop()
         self.plc_heartbeat_timer.stop()
+        self.plc_reconnect_timer.stop()
         # Restores the saved profile if a technician left a preview running.
         self.stop_camera_preview(restore=True)
         try:

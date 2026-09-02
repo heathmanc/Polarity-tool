@@ -201,6 +201,40 @@ single-product station whose PLC program carries no selector tag. It is a
 deliberate configuration, not a degraded mode; a manual inspection from the HMI
 always grades against it regardless of this setting.
 
+## Recipe sessions and Busy
+
+`Busy` means the station is occupied and must not be sent a part. It covers a
+running inspection cycle *and* the whole time a recipe is open at the HMI for
+editing or training — minutes rather than milliseconds. `Complete`, `Pass` and
+`Fail` stay low for a session: a validation sample is not a production result
+and never reaches the result tags.
+
+Earlier releases published nothing for a recipe session. Readiness dropped for
+the fraction of a second each validation sample was captured and came straight
+back, so a controller watching `Ready AND NOT Busy` saw a station that looked
+available between samples while a technician was standing at the fixture
+placing parts by hand.
+
+`Ready` is false for the whole session. A trigger that arrives anyway is
+refused, logged once, and publishes nothing.
+
+## Communication faults and reconnection
+
+A lost connection stops the input poll and the heartbeat. The controller's
+watchdog trips on the stopped heartbeat, and the station's outputs freeze at
+their last written values. The heartbeat, not `Ready`, is the liveness signal.
+
+The station reconnects on its own, retrying the **configured** backend with a
+backoff from 2 s to 30 s. It never switches to Simulation. It stays faulted
+until a real read of the input tags succeeds — opening a driver is not
+evidence, since a driver can open against a controller that will not answer for
+these tags. On recovery the poll and heartbeat resume, `Ready` is rewritten
+from scratch, and a held recipe-session `Busy` is re-asserted.
+
+The initial failure and the eventual recovery are each logged once. Individual
+retry attempts are not, so a controller that is down overnight does not fill the
+audit trail.
+
 ## Bypass contract
 
 The Overview page contains an amber **ENABLE BYPASS / BYPASS ACTIVE** control. Enabling it writes `BatteryVision.Bypass := TRUE` and verifies the read-back value. The state is continuously read from the PLC, so a PLC-side clear/change is reflected in the HMI.

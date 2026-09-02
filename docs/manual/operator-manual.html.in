@@ -495,8 +495,8 @@ footer {
   <h1>Pole Position</h1>
   <p class="standfirst">How to run this station, wire it to the PLC, teach it a new battery, and train the model that reads the terminal stamps.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.31.0</dd></div>
-    <div><dt>Document</dt><dd>Rev E</dd></div>
+    <div><dt>Applies to</dt><dd>v0.32.0</dd></div>
+    <div><dt>Document</dt><dd>Rev F</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Replaces</dt><dd>Nothing</dd></div>
   </dl>
@@ -895,6 +895,22 @@ END_IF;
   <p>The same is true of a selector tag that names nothing at all: a blank string, a zero, or a tag the program never writes. The station refuses, because a blank tag looks the same as a broken one and guessing would put a part through the wrong recipe.</p>
   <p>A station whose PLC program has no selector tag is set up for that instead. Under <strong>Settings &rarr; PLC TAGS</strong>, <strong>Recipe source</strong> is set to <em>Station selection</em>, and PLC triggers then use the recipe chosen on the Recipes page. Use that for a line that runs one product; use the selector tag for any line that runs more than one.</p>
 
+  <h3 id="plc-session">While a recipe is open</h3>
+
+  <p><code>Busy</code> does not only mean "an inspection is running". It also goes high the moment somebody opens a recipe at the HMI to edit or validate it, and stays high until they close it. That can be several minutes.</p>
+
+  <p>This is deliberate. A technician working on a recipe is standing at the fixture putting parts on by hand. Before this, the station only looked busy for the split second each validation picture was taken, so a program watching <code>Ready AND NOT Busy</code> would think the station was free in between and send a part into somebody's hands.</p>
+
+  <p>During a recipe session: <code>Busy</code> is high, <code>Ready</code> is low, and <code>Complete</code>, <code>Pass</code> and <code>Fail</code> all stay low. A validation picture is not a production result and never appears on the result tags. If a trigger arrives anyway it is refused and written to the event log once.</p>
+
+  <h3 id="plc-reconnect">If the station loses the PLC</h3>
+
+  <p>The station stops talking: no more input reads, and the heartbeat stops toggling. The controller's watchdog is what notices, which is why the heartbeat &mdash; not <code>Ready</code> &mdash; is the signal to trust. All the station's output tags freeze at their last values.</p>
+
+  <p>It then tries to reconnect by itself, every 2 seconds at first and slowing to every 30 seconds. It only ever reconnects to the <strong>same</strong> setup it was configured for; it never quietly switches to Simulation. It stays faulted until it manages a real read of the tags, because opening a connection is not proof the tags will answer. Once it recovers, polling and the heartbeat start again, and the event log records that it came back.</p>
+
+  <p>So a switch reboot or a controller download no longer needs a technician to walk over and press <code>APPLY &amp; TEST</code>. If it has not come back after a few minutes, something else is wrong &mdash; check the network and the controller, then press <code>APPLY &amp; TEST PYCOMM3</code>.</p>
+
   <h3 id="plc-bypass">Bypass logic</h3>
   <p>Bypass is a request from the station to the controller, written to <code>BatteryVision.Bypass</code> and read back to confirm. The station reads the tag continuously, so a PLC-side change appears in the HMI.</p>
   <p>Bypass is deliberately not a forced pass. Acquisition continues, inspection continues, non-PASS evidence is still recorded, and the real result tags are still published. Only the controller's use of the result changes.</p>
@@ -1223,7 +1239,7 @@ python scripts\clear_pending_restore.py --clear</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position station handbook, Rev E, for application v0.31.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
+  <p><strong>Pole Position station handbook, Rev F, for application v0.32.0.</strong> Figures are rendered from the running application at this version by <code>scripts/capture_manual_screenshots.py</code>, using simulation backends and the bundled demonstration battery.</p>
   <p>This document is an unapproved draft. It does not replace your site's approved user manual, and it is not a controlled record until your quality process makes it one. Where this handbook and the station's own behaviour disagree, the station is right and this document needs correcting.</p>
 </footer>
 

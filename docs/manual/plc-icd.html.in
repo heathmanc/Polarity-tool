@@ -3,8 +3,8 @@
   <h1>PLC Interface Control Document</h1>
   <p class="standfirst">Every signal the station reads, every signal it writes, how long each one holds its state, and what the controller must do about it.</p>
   <dl class="docmeta">
-    <div><dt>Applies to</dt><dd>v0.31.0</dd></div>
-    <div><dt>Document</dt><dd>Rev C</dd></div>
+    <div><dt>Applies to</dt><dd>v0.32.0</dd></div>
+    <div><dt>Document</dt><dd>Rev D</dd></div>
     <div><dt>Status</dt><dd>Unapproved draft</dd></div>
     <div><dt>Audience</dt><dd>Controls engineer</dd></div>
   </dl>
@@ -67,7 +67,7 @@
         </tr>
         <tr>
           <td><strong>Busy</strong></td><td><code>BatteryVision.Busy</code></td><td>BOOL</td><td>station &rarr; PLC</td>
-          <td><span class="badge level">Level</span> high for the whole cycle</td>
+          <td><span class="badge level">Level</span> high for the whole cycle, and for the whole of a recipe session</td>
         </tr>
         <tr>
           <td><strong>Complete</strong></td><td><code>BatteryVision.Complete</code></td><td>BOOL</td><td>station &rarr; PLC</td>
@@ -169,8 +169,15 @@
   <div class="part-head"><span class="part-num">4</span><h2>What the station writes</h2></div>
 
   <h3>4.1 &nbsp;Busy &mdash; level, station&nbsp;&rarr;&nbsp;PLC</h3>
-  <p>Raised when a PLC-triggered cycle is accepted and held for the whole cycle: acquisition, registration, classification, and evidence writing. It falls at the moment the result is published.</p>
-  <p>Writing <code>Busy</code> also clears the previous result, so <code>Complete</code>, <code>Pass</code>, and <code>Fail</code> all go low as <code>Busy</code> goes high.</p>
+  <p><code>Busy</code> means <strong>the station is occupied and must not be sent a part</strong>. It covers two situations, and the controller does not need to tell them apart.</p>
+  <p><strong>A cycle.</strong> Raised when a PLC-triggered cycle is accepted and held for the whole cycle: acquisition, registration, classification, and evidence writing. It falls at the moment the result is published. Writing <code>Busy</code> also clears the previous result, so <code>Complete</code>, <code>Pass</code>, and <code>Fail</code> all go low as <code>Busy</code> goes high.</p>
+  <p><strong>A recipe session.</strong> Raised the moment a recipe is opened at the HMI for editing or training, and held until it is closed &mdash; minutes, not milliseconds. <code>Complete</code>, <code>Pass</code>, and <code>Fail</code> stay low for the whole session: a validation sample is not a production result and never appears on the result tags.</p>
+
+  <div class="note care">
+    <span class="tag">Why the session is not just a series of short Busy pulses</span>
+    <p>A technician editing or validating a recipe is standing at the fixture placing parts by hand. Earlier releases raised nothing for that: readiness dropped for the fraction of a second each validation sample was taken and came straight back, so a controller watching <code>Ready AND NOT Busy</code> saw a station that looked available between samples. It was not available. <code>Busy</code> now covers the whole session, and <code>Ready</code> is false throughout it.</p>
+    <p>If a trigger arrives anyway, the station refuses it and logs it once. No cycle runs, and nothing is published.</p>
+  </div>
 
   <h3>4.2 &nbsp;Complete, Pass, Fail &mdash; latched, station&nbsp;&rarr;&nbsp;PLC</h3>
 
@@ -182,6 +189,7 @@
       <tbody>
         <tr><td>Idle, result cleared</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
         <tr><td>Inspection running</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+        <tr><td>Recipe open at the HMI</td><td class="num">1</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
         <tr><td>Completed PASS</td><td class="num">0</td><td class="num">1</td><td class="num">1</td><td class="num">0</td></tr>
         <tr><td>Completed non-PASS</td><td class="num">0</td><td class="num">1</td><td class="num">0</td><td class="num">1</td></tr>
       </tbody>
@@ -225,6 +233,14 @@
 
   <p>One exception to the toggling: when PLC settings are applied at the HMI, the station writes <code>Heartbeat = 0</code> once as part of verifying the connection, then resumes toggling. A watchdog with a three-interval timeout rides through this.</p>
 
+  <h4>What the heartbeat does during a communication fault</h4>
+
+  <p>It stops. When the station loses communications it stops both the input poll and the heartbeat, so the controller's watchdog trips and the station's outputs freeze at their last written values. That is the intended fail-safe: <strong>the heartbeat, not <code>Ready</code>, is what tells the controller the station is gone.</strong></p>
+
+  <p>The station then reconnects on its own, retrying the <strong>configured</strong> backend on a backoff from 2 s to 30 s. It never switches to Simulation, and it stays faulted with the heartbeat stopped until a real read of the input tags succeeds &mdash; opening a driver is not treated as evidence, because a driver can open against a controller that will not answer for these tags. When a read does succeed the poll and the heartbeat resume, <code>Ready</code> is rewritten from scratch, and any held recipe-session <code>Busy</code> is re-asserted, because a controller that dropped and came back has no memory of what it was last told.</p>
+
+  <p>Nothing about this shortens the controller's own responsibility: while the heartbeat is stopped the station is dead as far as the program is concerned, and the interlock must hold the product.</p>
+
   <h3>4.4 &nbsp;Ready &mdash; level, station&nbsp;&rarr;&nbsp;PLC, optional</h3>
 
   <p>Blank by default. When a tag is configured, the station publishes whether it could accept a trigger and grade the part it gets.</p>
@@ -238,6 +254,7 @@
     <li>no camera, or the camera has faulted;</li>
     <li>the recipe the selector currently names cannot be resolved to a validated revision;</li>
     <li>no reference image, or an unusable model &mdash; whatever the station reports as a blocking readiness issue for that recipe;</li>
+    <li>a recipe is open at the HMI for editing or training, for the whole of that session;</li>
     <li>the camera is held by something that is not an inspection: a <strong>live camera preview</strong>, a recipe reference capture, a validation run, an ML training capture, or a settings apply.</li>
   </ul>
 
@@ -280,6 +297,7 @@
       <tbody>
         <tr><td>Selector names a recipe with no validated revision</td><td>Logs the refusal, ignores the trigger edge</td><td><code>Ready</code> low; no <code>Busy</code>, no <code>Complete</code></td></tr>
         <tr><td>Trigger pulses entirely while <code>Busy</code> is high</td><td>Never observes it</td><td>No second cycle, nothing logged</td></tr>
+        <tr><td>Trigger arrives while a recipe is open at the HMI</td><td>Refuses it, logs it once for the session</td><td><code>Ready</code> low and <code>Busy</code> high throughout; no <code>Complete</code></td></tr>
         <tr><td>Operator runs a manual inspection at the HMI</td><td>Grades the part and records it locally</td><td><strong>Nothing.</strong> Manual cycles never touch the PLC tags</td></tr>
       </tbody>
     </table>
@@ -379,6 +397,6 @@ END_IF;</code></pre>
 </section>
 
 <footer>
-  <p><strong>Pole Position PLC Interface Control Document, Rev C, for application v0.31.0.</strong> Generated from the station's own interface specification by <code>scripts/build_plc_icd.py</code>. Where this document and the station's behaviour disagree, the station is right and this document needs correcting.</p>
+  <p><strong>Pole Position PLC Interface Control Document, Rev D, for application v0.32.0.</strong> Generated from the station's own interface specification by <code>scripts/build_plc_icd.py</code>. Where this document and the station's behaviour disagree, the station is right and this document needs correcting.</p>
   <p>This document is an unapproved draft and is not a controlled record until your quality process makes it one.</p>
 </footer>
