@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -43,6 +42,7 @@ from battery_inspector.data.repository import (
     REVIEW_TRAINING,
 )
 from battery_inspector.models import InspectionResult, Marking
+from battery_inspector.ui.image_widgets import CropPreview
 from battery_inspector.ui.palette import AMBER, TEXT_MUTED
 from battery_inspector.ui.widgets import PageNavigator, PanelFrame
 
@@ -93,7 +93,6 @@ class TrueLabelDialog(QDialog):
         warning.setStyleSheet(f"color: {AMBER}; font-weight: 700;")
         root.addWidget(warning)
 
-        form = QFormLayout()
         payload = dict(record.get("payload") or {})
         for terminal in payload.get("terminals", []):
             if not isinstance(terminal, dict):
@@ -109,11 +108,24 @@ class TrueLabelDialog(QDialog):
             detected = str(terminal.get("detected_marking", "") or "?").upper()
             confidence = float(terminal.get("marking_confidence", 0.0) or 0.0)
             name = str(terminal.get("terminal_name", key))
-            form.addRow(
-                f"{name}\nstation read: {detected} ({confidence:.0%})",
-                combo,
-            )
-        root.addLayout(form)
+
+            row = QHBoxLayout()
+            # The crop that will be added, not a description of it. The label is
+            # a judgement about an image, so the image has to be on screen: this
+            # is the marking crop the classifier itself was given.
+            preview = CropPreview()
+            preview.setFixedSize(140, 140)
+            preview.set_image(str(terminal.get("marking_crop_path", "") or ""))
+            row.addWidget(preview)
+
+            column = QVBoxLayout()
+            heading = QLabel(f"{name}\nstation read: {detected} ({confidence:.0%})")
+            heading.setWordWrap(True)
+            column.addWidget(heading)
+            column.addWidget(combo)
+            column.addStretch(1)
+            row.addLayout(column, 1)
+            root.addLayout(row)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel

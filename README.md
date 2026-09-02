@@ -8,7 +8,7 @@ uses a Basler camera, reference-image registration, an ONNX marking classifier,
 independent terminal-presence and red-ring checks, recipe-controlled terminal
 finish checks, and an Allen-Bradley Logix PLC interface.
 
-This README is the current project and handoff guide for the **v0.32.0** source
+This README is the current project and handoff guide for the **v0.32.1** source
 baseline. Read it before relying on an older release note: release notes describe
 the behavior of their point release and can contain terminology that later
 releases replaced.
@@ -45,8 +45,8 @@ releases replaced.
 | Item | Current value |
 | --- | --- |
 | Product name | Pole Position |
-| Application version | `0.32.0` |
-| Release tag | `v0.32.0` |
+| Application version | `0.32.1` |
+| Release tag | `v0.32.1` |
 | Tagged commit | `5f86fc3371e4700eea6356d357bfa50e7e124af2` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
@@ -378,7 +378,7 @@ not accelerate the current production inference path.
 Use the final Inno Setup executable:
 
 ```text
-Pole-Position-v0.32.0-Setup-x64.exe
+Pole-Position-v0.32.1-Setup-x64.exe
 ```
 
 Do not hand off only `PolePosition.exe` and its `_internal` folder. That is the
@@ -867,10 +867,11 @@ Four actions operate on the selection:
 the case where the classifier may have been wrong, so the label dialog
 preselects nothing and shows the station's reading only as context. Defaulting
 to the detected class would train the model on its own mistakes. Crops are taken
-from the stored full-resolution frame using the recorded terminal outline and
-re-cropped through the same `ml_input_crop` contract a live capture uses, so a
-sample added here is indistinguishable from one captured on the ML Training
-page.
+from the stored full-resolution frame using the recorded **marking** outline --
+the taught circle on the metal terminal top, not the locator's larger search
+area -- and re-cropped through the same `ml_input_crop` contract a live capture
+uses, so a sample added here is indistinguishable from one captured on the ML
+Training page. The dialog shows that crop beside each choice.
 
 Clearing is scoped by the same rule as retention: only a two-level cycle
 directory beneath `runtime/inspections/` carrying a readable manifest can be
@@ -1172,9 +1173,9 @@ Publisher or SmartScreen warnings.
 Use the files under `dist\windows`, not the intermediate frozen directory:
 
 ```text
-dist\windows\Pole-Position-v0.32.0-Setup-x64.exe
-dist\windows\Pole-Position-v0.32.0-Setup-x64.exe.sha256
-dist\windows\Pole-Position-v0.32.0-requirements-lock.txt
+dist\windows\Pole-Position-v0.32.1-Setup-x64.exe
+dist\windows\Pole-Position-v0.32.1-Setup-x64.exe.sha256
+dist\windows\Pole-Position-v0.32.1-requirements-lock.txt
 ```
 
 The build:
@@ -1515,6 +1516,7 @@ this README, current source, or current subsystem documents.
 | v0.31.0 | Failure Review: triage, keep-from-retention, technician-labelled crops to ML training, export, clear |
 | v0.31.1 | Fixed OPEN doing nothing on Failure Review |
 | v0.32.0 | Busy held high for a whole recipe session; automatic PLC reconnection on the configured backend |
+| v0.32.1 | Failure Review training crop is the terminal top, not the locator search area |
 | v0.23.3 | Excluded ONNX Runtime example model files |
 | v0.23.2 | Excluded ONNX backend test model corpus and improved Inno discovery |
 | v0.23.1 | Fixed Windows PowerShell Python probe and defaulted to `python` |
@@ -1550,7 +1552,7 @@ following or an explicit note that the item is not applicable.
 - [ ] Current source archive at a recorded Git commit
 - [ ] Git bundle or remote repository containing full history and tags
 - [ ] `SHA256SUMS.txt` verified
-- [ ] v0.32.0 installer, `.sha256`, and requirements lock
+- [ ] v0.32.1 installer, `.sha256`, and requirements lock
 - [ ] Exact official Basler pylon redistributable used to build the installer,
       with version and SHA-256
 - [ ] Code-signing status/certificate owner recorded

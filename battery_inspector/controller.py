@@ -28,6 +28,7 @@ from battery_inspector.evidence import (
     stage_reference_capture,
 )
 from battery_inspector.ml_training import (
+    CIRCLE_ROI_SHAPE,
     MlTrainingParameters,
     MlTrainingStore,
     training_environment,
@@ -989,18 +990,28 @@ class AppController(QObject):
             if isinstance(item, dict)
         }
         items: list[tuple[str, NormalizedRect, str]] = []
+        roi_shape = CIRCLE_ROI_SHAPE
         for terminal_key, label in labels.items():
             if not str(label or "").strip():
                 continue
             terminal = terminals.get(terminal_key)
             if terminal is None:
                 continue
-            polygon = [tuple(point) for point in terminal.get("terminal_polygon", [])]
+            # The MARKING polygon, not the terminal polygon. The terminal
+            # polygon is the locator's search area -- deliberately larger than
+            # the post so the terminal can be found inside it -- and a crop of
+            # that carries case, background, and often part of the other
+            # terminal. The marking polygon is the taught circle on the metal
+            # top, which is what the classifier is trained and run on.
+            polygon = [tuple(point) for point in terminal.get("marking_polygon", [])]
             if len(polygon) < 3:
                 raise ValueError(
-                    f"{terminal_key} has no recorded terminal outline for this cycle, "
-                    "so a training crop cannot be located in the stored frame."
+                    f"{terminal_key} has no recorded marking outline for this cycle, "
+                    "so the training crop cannot be located in the stored frame. "
+                    "Capture this sample on the ML Training page instead."
                 )
+            metrics = dict(terminal.get("classification_metrics") or {})
+            roi_shape = str(metrics.get("marking_roi_shape", CIRCLE_ROI_SHAPE) or CIRCLE_ROI_SHAPE)
             xs = [float(point[0]) for point in polygon]
             ys = [float(point[1]) for point in polygon]
             rect = NormalizedRect(
@@ -1024,6 +1035,7 @@ class AppController(QObject):
             capture,
             items,
             collection_tag=f"failure_review:{record.get('inspection_id', '')}",
+            roi_shape=roi_shape,
         )
         inspection_id = str(record.get("inspection_id", ""))
         if inspection_id:

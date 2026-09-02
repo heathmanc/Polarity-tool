@@ -242,12 +242,22 @@ def _failure_with_frame(controller, tmp_path, *, detected: str = "plus") -> dict
                 "terminal_name": "Negative Terminal",
                 "detected_marking": detected,
                 "expected_marking": "minus",
+                # The locator's search area: deliberately larger than the post,
+                # so the terminal can be found inside it.
                 "terminal_polygon": [
-                    [0.30, 0.30],
-                    [0.55, 0.30],
-                    [0.55, 0.62],
-                    [0.30, 0.62],
+                    [0.10, 0.10],
+                    [0.80, 0.10],
+                    [0.80, 0.85],
+                    [0.10, 0.85],
                 ],
+                # The taught circle on the metal top. This is the crop.
+                "marking_polygon": [
+                    [0.40, 0.40],
+                    [0.52, 0.40],
+                    [0.52, 0.55],
+                    [0.40, 0.55],
+                ],
+                "classification_metrics": {"marking_roi_shape": "circle"},
             }
         ],
     )
@@ -583,3 +593,48 @@ def test_a_card_refuses_geometry_that_is_not_a_recipe(qapp) -> None:
     )
 
     assert card._recipe is None
+
+
+def test_the_training_crop_is_the_marking_circle_not_the_search_area(
+    qapp, controller, tmp_path
+) -> None:
+    """Which polygon the crop comes from, pinned.
+
+    The terminal polygon is the locator's search area. It is deliberately
+    bigger than the post so the terminal can be found inside it, so a crop of
+    it carries case, background, and often part of the other terminal. Training
+    on that teaches the classifier about everything except the thing it is
+    supposed to read. The marking polygon is the taught circle on the metal
+    top, which is what the classifier is trained and run on.
+    """
+
+    record = _failure_with_frame(controller, tmp_path)
+
+    controller.send_failure_to_training(record, {"negative": "minus"})
+
+    sample = [
+        item
+        for item in controller.ml_training_store.records()
+        if "failure_review" in item.collection_tag
+    ][0]
+    # The marking polygon spans 0.40..0.52 in x and 0.40..0.55 in y; the search
+    # polygon spans 0.10..0.80 and 0.10..0.85. A circle ROI is squared to its
+    # shorter side, so the exact width is not the point -- where it sits and how
+    # small it is, is.
+    left = float(sample.roi["x"])
+    width = float(sample.roi["width"])
+    assert 0.39 <= left <= 0.53
+    assert left + width <= 0.56
+    assert width < 0.2  # the search area is 0.70 wide
+    assert sample.roi_shape == "circle"
+
+
+def test_a_record_without_a_marking_outline_is_refused(qapp, controller, tmp_path) -> None:
+    """Never silently fall back to the search area."""
+
+    record = _failure_with_frame(controller, tmp_path)
+    for terminal in record["payload"]["terminals"]:
+        terminal.pop("marking_polygon")
+
+    with pytest.raises(ValueError, match="no recorded marking outline"):
+        controller.send_failure_to_training(record, {"negative": "minus"})
