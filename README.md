@@ -47,7 +47,7 @@ releases replaced.
 | Product name | Pole Position |
 | Application version | `0.32.1` |
 | Release tag | `v0.32.1` |
-| Tagged commit | `5f86fc3371e4700eea6356d357bfa50e7e124af2` |
+| Tagged commit | `49aa8a257770b5b5ef9d84105ecd4480169d5943` |
 | Qualified packaging Python | CPython 3.11 x64 |
 | Inspection engine | `reference_registration_terminal_face_guard_ml_v2` |
 | Evidence manifest schema | `8` |
