@@ -31,7 +31,7 @@ hardware = [
 ]
 dev = [
   "pytest>=8,<10",
-  "ruff>=0.6,<0.17",
+  "ruff>=0.6,<0.18",
 ]
 training = [
   "ultralytics>=8.3,<9",
